@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import string
 import sys
 import warnings
 
@@ -7,6 +8,9 @@ from PyQt5.QtCore import QObject, pyqtProperty, pyqtSignal
 from PyQt5.QtGui import QGuiApplication
 from PyQt5.QtQml import QQmlApplicationEngine
 from quamash import QEventLoop
+
+def is_valid_screen_name( screen_name ):
+    return all( c not in string.whitespace for c in screen_name )
 
 class AppModel( QObject ):
     screenNameChanged = pyqtSignal()
@@ -25,6 +29,11 @@ class AppModel( QObject ):
 
     @screenName.setter
     def screenName( self, screenName ):
+        # If the given value is not a valid screen name, then warn and return.
+        if not is_valid_screen_name( screenName ):
+            warnings.warn( f"Given screen name '{screeName}' is not a valid screen name." )
+            return
+
         if self._screenName == screenName:
             return
         self._screenName = screenName
@@ -80,8 +89,8 @@ class ClientApp( QGuiApplication ):
             metavar="<screen name>",
             help="Screen name to use when connecting to the chat membership server." )
 
-        parser.add_argument( "server_host",
-            metavar="<server host>",
+        parser.add_argument( "server_address",
+            metavar="<server address>",
             help="IP address or hostname of chat membership server to connect to." )
 
         parser.add_argument( "server_port",
@@ -89,8 +98,14 @@ class ClientApp( QGuiApplication ):
             metavar="<server port>",
             help="Port on the chat membership server to connect to" )
 
+        # argparse parser wants only the command line arguments. Typically the app arguments, which
+        # were initialized from sys.argv, also contain as the first entry the name of the script
+        # that was executed. We strip that off before calling the command line parser.
         arguments = self.arguments()
-        return parser.parse_args( arguments[1:] )
+        cli = parser.parse_args( arguments[1:] )
+        self.app_model.screenName = cli.screen_name
+        self.app_model.serverAddress = cli.server_address
+        self.app_model.serverPort = cli.server_port
 
 class ClientMembershipProtocol( asyncio.Protocol ):
     def connection_made( self, transport ):
@@ -107,7 +122,9 @@ class ClientMembershipProtocol( asyncio.Protocol ):
 
 def main():
     app = ClientApp( sys.argv )
-    engine = QQmlApplicationEngine( "client.qml" )
+    engine = QQmlApplicationEngine()
+    engine.rootContext().setContextProperty( "appModel", app.app_model )
+    engine.load( "client.qml" )
     loop = QEventLoop( app )
     asyncio.set_event_loop( loop )
 

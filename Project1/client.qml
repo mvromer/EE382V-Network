@@ -35,14 +35,13 @@ ApplicationWindow {
             }
 
             ColumnLayout {
-                width: 250
+                width: 300
                 spacing: 0
 
                 Controls2.Frame {
                     Layout.fillWidth: true
 
                     GridLayout {
-                        id: opts
                         anchors.fill: parent
                         columns: 2
                         rows: 4
@@ -53,7 +52,7 @@ ApplicationWindow {
 
                         TextField {
                             Layout.fillWidth: true
-                            text: opts.height
+                            text: appModel.screenName
                         }
 
                         Label {
@@ -62,7 +61,7 @@ ApplicationWindow {
 
                         TextField {
                             Layout.fillWidth: true
-                            text: users.height
+                            text: appModel.serverAddress
                         }
 
                         Label {
@@ -71,7 +70,7 @@ ApplicationWindow {
 
                         TextField {
                             Layout.fillWidth: true
-                            text: users.width
+                            text: appModel.serverPort
                         }
 
                         RowLayout {
@@ -97,7 +96,6 @@ ApplicationWindow {
                     verticalScrollBarPolicy: Qt.ScrollBarAlwaysOn
 
                     ListView {
-                        id: users
                     }
                 }
             }

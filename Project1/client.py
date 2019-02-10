@@ -4,7 +4,8 @@ import string
 import sys
 import warnings
 
-from PyQt5.QtCore import QObject, pyqtProperty, pyqtSignal
+from enum import Enum
+from PyQt5.QtCore import QObject, pyqtProperty, pyqtSignal, Q_ENUM
 from PyQt5.QtGui import QGuiApplication
 from PyQt5.QtQml import QQmlApplicationEngine
 from quamash import QEventLoop
@@ -13,15 +14,23 @@ def is_valid_screen_name( screen_name ):
     return all( c not in string.whitespace for c in screen_name )
 
 class AppModel( QObject ):
+    class ClientStatus( Enum ):
+        Connected = 1
+        Disconnected = 2
+
+    Q_ENUM( ClientStatus )
+
     screenNameChanged = pyqtSignal()
     serverAddressChanged = pyqtSignal()
     serverPortChanged = pyqtSignal()
+    clientStatusChanged = pyqtSignal( ClientStatus, arguments=["clientStatus"] )
 
     def __init__( self, parent=None ):
         super().__init__( parent )
         self._screenName = None
         self._serverAddress = None
         self._serverPort = None
+        self._clientStatus = AppModel.ClientStatus.Disconnected
 
     @pyqtProperty( "QString", notify=screenNameChanged )
     def screenName( self ):
@@ -31,7 +40,7 @@ class AppModel( QObject ):
     def screenName( self, screenName ):
         # If the given value is not a valid screen name, then warn and return.
         if not is_valid_screen_name( screenName ):
-            warnings.warn( f"Given screen name '{screeName}' is not a valid screen name." )
+            warnings.warn( f"Given screen name '{screenName}' is not a valid screen name." )
             return
 
         if self._screenName == screenName:
@@ -77,11 +86,22 @@ class AppModel( QObject ):
         self._serverPort = serverPort
         self.serverPortChanged.emit()
 
+    @pyqtProperty( ClientStatus, notify=clientStatusChanged )
+    def clientStatus( self ):
+        return self._clientStatus
+
+    @clientStatus.setter
+    def clientStatus( self, clientStatus ):
+        if self._clientStatus == clientStatus:
+            return
+        self._clientStatus = clientStatus
+        #self.clientStatusChanged.emit( clientStatus )
+
 class ClientApp( QGuiApplication ):
     def __init__( self, arguments ):
         super().__init__( arguments )
         self.app_model = AppModel()
-        self.cli = self._parse_command_line()
+        self._parse_command_line()
 
     def _parse_command_line( self ):
         parser = argparse.ArgumentParser( description="EE382V Project 1 Chatter Client" )

@@ -80,10 +80,12 @@ ApplicationWindow {
 
                             Button {
                                 text: "Connect"
+                                enabled: appModel.clientStatus == ClientStatus.DISCONNECTED ? true : false
                             }
 
                             Button {
                                 text: "Disconnect"
+                                //enabled: appModel.clientStatus == ClientStatus.CONNECTED
                             }
                         }
                     }

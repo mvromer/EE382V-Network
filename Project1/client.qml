@@ -4,6 +4,8 @@ import QtQuick.Controls 2.4 as Controls2
 import QtQuick.Controls.Styles 1.4
 import QtQuick.Layouts 1.11
 
+import Chatter.Client 1.0
+
 ApplicationWindow {
     width: 800
     height: 600
@@ -80,12 +82,12 @@ ApplicationWindow {
 
                             Button {
                                 text: "Connect"
-                                enabled: appModel.clientStatus == ClientStatus.DISCONNECTED ? true : false
+                                enabled: appModel.clientStatus == AppModel.Disconnected
                             }
 
                             Button {
                                 text: "Disconnect"
-                                //enabled: appModel.clientStatus == ClientStatus.CONNECTED
+                                enabled: appModel.clientStatus == AppModel.Connected
                             }
                         }
                     }

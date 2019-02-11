@@ -4,17 +4,16 @@ import string
 import sys
 import warnings
 
-from enum import Enum
 from PyQt5.QtCore import QObject, pyqtProperty, pyqtSignal, Q_ENUM
 from PyQt5.QtGui import QGuiApplication
-from PyQt5.QtQml import QQmlApplicationEngine
+from PyQt5.QtQml import QQmlApplicationEngine, qmlRegisterUncreatableType
 from quamash import QEventLoop
 
 def is_valid_screen_name( screen_name ):
     return all( c not in string.whitespace for c in screen_name )
 
 class AppModel( QObject ):
-    class ClientStatus( Enum ):
+    class ClientStatus:
         Connected = 1
         Disconnected = 2
 
@@ -95,7 +94,7 @@ class AppModel( QObject ):
         if self._clientStatus == clientStatus:
             return
         self._clientStatus = clientStatus
-        #self.clientStatusChanged.emit( clientStatus )
+        self.clientStatusChanged.emit( clientStatus )
 
 class ClientApp( QGuiApplication ):
     def __init__( self, arguments ):
@@ -140,8 +139,9 @@ class ClientMembershipProtocol( asyncio.Protocol ):
     def eof_received( self, data ):
         pass
 
-def main():
-    app = ClientApp( sys.argv )
+def main( argv ):
+    app = ClientApp( argv )
+    qmlRegisterUncreatableType( AppModel, "Chatter.Client", 1, 0, "AppModel", "AppModel cannot be craeted in QML." )
     engine = QQmlApplicationEngine()
     engine.rootContext().setContextProperty( "appModel", app.app_model )
     engine.load( "client.qml" )
@@ -152,4 +152,4 @@ def main():
         loop.run_forever()
 
 if __name__ == "__main__":
-    main()
+    main( sys.argv )

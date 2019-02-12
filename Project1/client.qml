@@ -106,6 +106,8 @@ ApplicationWindow {
                     verticalScrollBarPolicy: Qt.ScrollBarAlwaysOn
 
                     ListView {
+                        model: appModel.chatMembers
+                        delegate: Text { text: model.display }
                     }
                 }
             }

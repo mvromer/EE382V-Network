@@ -4,13 +4,43 @@ import string
 import sys
 import warnings
 
-from PyQt5.QtCore import QObject, pyqtProperty, pyqtSignal, pyqtSlot, Q_ENUM
+from PyQt5.QtCore import (Qt, QObject, QAbstractListModel, QModelIndex, QVariant,
+    pyqtProperty, pyqtSignal, pyqtSlot, Q_ENUM)
 from PyQt5.QtGui import QGuiApplication
 from PyQt5.QtQml import QQmlApplicationEngine, qmlRegisterUncreatableType
 from quamash import QEventLoop
 
 def is_valid_screen_name( screen_name ):
     return all( c not in string.whitespace for c in screen_name )
+
+class ChatMember:
+    def __init__( self, screen_name, address, port ):
+        self.screenName = screen_name
+        self.address = address
+        self.port = port
+
+class ChatMemberListModel( QAbstractListModel ):
+    def __init__( self, parent=None ):
+        super().__init__( parent )
+        self._members = []
+
+    def rowCount( self, parent=QModelIndex() ):
+        return len( self._members )
+
+    def data( self, index, role=Qt.DisplayRole ):
+        if not index.isValid():
+            return QVariant()
+
+        if role == Qt.DisplayRole:
+            iRow = index.row()
+            return self._members[iRow].screenName
+
+        return QVariant()
+
+    def add_member( self, member ):
+        self.beginInsertRows( QModelIndex(), self.rowCount(), self.rowCount() )
+        self._members.append( member )
+        self.endInsertRows()
 
 class AppModel( QObject ):
     class ClientStatus:
@@ -29,6 +59,7 @@ class AppModel( QObject ):
         self._serverAddress = None
         self._serverPort = None
         self._clientStatus = AppModel.ClientStatus.Disconnected
+        self._chatMembers = ChatMemberListModel()
 
     @pyqtProperty( "QString", notify=screenNameChanged )
     def screenName( self ):
@@ -94,6 +125,10 @@ class AppModel( QObject ):
             return
         self._clientStatus = clientStatus
         self.clientStatusChanged.emit( clientStatus )
+
+    @pyqtProperty( ChatMemberListModel, constant=True )
+    def chatMembers( self ):
+        return self._chatMembers
 
     @pyqtSlot()
     def connect_to_server( self ):

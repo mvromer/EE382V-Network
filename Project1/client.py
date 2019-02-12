@@ -4,7 +4,7 @@ import string
 import sys
 import warnings
 
-from PyQt5.QtCore import QObject, pyqtProperty, pyqtSignal, Q_ENUM
+from PyQt5.QtCore import QObject, pyqtProperty, pyqtSignal, pyqtSlot, Q_ENUM
 from PyQt5.QtGui import QGuiApplication
 from PyQt5.QtQml import QQmlApplicationEngine, qmlRegisterUncreatableType
 from quamash import QEventLoop
@@ -14,8 +14,7 @@ def is_valid_screen_name( screen_name ):
 
 class AppModel( QObject ):
     class ClientStatus:
-        Connected = 1
-        Disconnected = 2
+        Connected, Connecting, Disconnected = range( 3 )
 
     Q_ENUM( ClientStatus )
 
@@ -95,6 +94,16 @@ class AppModel( QObject ):
             return
         self._clientStatus = clientStatus
         self.clientStatusChanged.emit( clientStatus )
+
+    @pyqtSlot()
+    def connect_to_server( self ):
+        print( "Connecting to membership server" )
+        self.clientStatus = AppModel.ClientStatus.Connected
+
+    @pyqtSlot()
+    def disconnect_from_server( self ):
+        print( "Disconnecting from membership server" )
+        self.clientStatus = AppModel.ClientStatus.Disconnected
 
 class ClientApp( QGuiApplication ):
     def __init__( self, arguments ):

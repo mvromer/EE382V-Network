@@ -33,6 +33,7 @@ ApplicationWindow {
             TextArea {
                 Layout.fillWidth: true
                 readOnly: true
+                enabled: appModel.clientStatus == AppModel.Connected
                 text: "The quick brown fox"
             }
 
@@ -55,6 +56,7 @@ ApplicationWindow {
                         TextField {
                             Layout.fillWidth: true
                             text: appModel.screenName
+                            enabled: appModel.clientStatus == AppModel.Disconnected
                         }
 
                         Label {
@@ -64,6 +66,7 @@ ApplicationWindow {
                         TextField {
                             Layout.fillWidth: true
                             text: appModel.serverAddress
+                            enabled: appModel.clientStatus == AppModel.Disconnected
                         }
 
                         Label {
@@ -73,6 +76,7 @@ ApplicationWindow {
                         TextField {
                             Layout.fillWidth: true
                             text: appModel.serverPort
+                            enabled: appModel.clientStatus == AppModel.Disconnected
                         }
 
                         RowLayout {
@@ -83,11 +87,13 @@ ApplicationWindow {
                             Button {
                                 text: "Connect"
                                 enabled: appModel.clientStatus == AppModel.Disconnected
+                                onClicked: appModel.connect_to_server()
                             }
 
                             Button {
                                 text: "Disconnect"
                                 enabled: appModel.clientStatus == AppModel.Connected
+                                onClicked: appModel.disconnect_from_server()
                             }
                         }
                     }
@@ -107,6 +113,7 @@ ApplicationWindow {
 
         TextField {
             Layout.fillWidth: true
+            enabled: appModel.clientStatus == AppModel.Connected
         }
     }
 }

@@ -34,7 +34,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 readOnly: true
                 enabled: appModel.clientStatus == AppModel.Connected
-                text: "The quick brown fox"
+                text: appModel.chatBuffer
             }
 
             ColumnLayout {
@@ -114,8 +114,15 @@ ApplicationWindow {
         }
 
         TextField {
+            id: messageInput
             Layout.fillWidth: true
             enabled: appModel.clientStatus == AppModel.Connected
+            onAccepted: appModel.send_chat_message( text )
+
+            Connections {
+                target: appModel
+                onChatBufferChanged: messageInput.remove( 0, messageInput.text.length )
+            }
         }
     }
 }

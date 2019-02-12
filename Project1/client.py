@@ -58,6 +58,7 @@ class AppModel( QObject ):
     serverAddressChanged = pyqtSignal()
     serverPortChanged = pyqtSignal()
     clientStatusChanged = pyqtSignal( ClientStatus, arguments=["clientStatus"] )
+    chatBufferChanged = pyqtSignal()
 
     def __init__( self, parent=None ):
         super().__init__( parent )
@@ -66,6 +67,7 @@ class AppModel( QObject ):
         self._serverPort = None
         self._clientStatus = AppModel.ClientStatus.Disconnected
         self._chatMembers = ChatMemberListModel()
+        self._chatBuffer = ""
 
     @pyqtProperty( "QString", notify=screenNameChanged )
     def screenName( self ):
@@ -136,6 +138,14 @@ class AppModel( QObject ):
     def chatMembers( self ):
         return self._chatMembers
 
+    @pyqtProperty( "QString", notify=chatBufferChanged )
+    def chatBuffer( self ):
+        return self._chatBuffer
+
+    def append_chat_message( self, chat_message ):
+        self._chatBuffer += f"{chat_message}\n"
+        self.chatBufferChanged.emit()
+
     @pyqtSlot()
     def connect_to_server( self ):
         print( "Connecting to membership server" )
@@ -145,6 +155,11 @@ class AppModel( QObject ):
     def disconnect_from_server( self ):
         print( "Disconnecting from membership server" )
         self.clientStatus = AppModel.ClientStatus.Disconnected
+
+    @pyqtSlot( str )
+    def send_chat_message( self, message ):
+        print( f"Sending message: {message}" )
+        self.append_chat_message( message )
 
 class ClientApp( QGuiApplication ):
     def __init__( self, arguments ):

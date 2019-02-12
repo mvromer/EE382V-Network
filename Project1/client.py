@@ -42,6 +42,12 @@ class ChatMemberListModel( QAbstractListModel ):
         self._members.append( member )
         self.endInsertRows()
 
+    def clear( self ):
+        if self.rowCount() > 0:
+            self.beginRemoveRows( QModelIndex(), 0, self.rowCount() - 1 )
+            self._members = []
+            self.endRemoveRows()
+
 class AppModel( QObject ):
     class ClientStatus:
         Connected, Connecting, Disconnected = range( 3 )

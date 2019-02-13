@@ -142,8 +142,11 @@ class AppModel( QObject ):
     def chatBuffer( self ):
         return self._chatBuffer
 
-    def append_chat_message( self, chat_message ):
-        self._chatBuffer += f"{chat_message}\n"
+    def append_message( self, message, error=False ):
+        if error:
+            message = f"<span style='color: #dc322f'><strong>[ERROR]</strong> {message}</span>"
+
+        self._chatBuffer += f"<p style='margin-top: 0; margin-bottom: 1em;'>{message}</p>"
         self.chatBufferChanged.emit()
 
     @pyqtSlot()
@@ -159,7 +162,7 @@ class AppModel( QObject ):
     @pyqtSlot( str )
     def send_chat_message( self, message ):
         print( f"Sending message: {message}" )
-        self.append_chat_message( message )
+        self.append_message( message, error=True )
 
 class ClientApp( QGuiApplication ):
     def __init__( self, arguments ):
@@ -191,7 +194,7 @@ class ClientApp( QGuiApplication ):
         self.app_model.serverAddress = cli.server_address
         self.app_model.serverPort = cli.server_port
 
-class ClientMembershipProtocol( asyncio.Protocol ):
+class ChatClientProtocol( asyncio.Protocol ):
     def connection_made( self, transport ):
         pass
 

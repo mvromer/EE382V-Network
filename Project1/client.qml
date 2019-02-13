@@ -32,8 +32,10 @@ ApplicationWindow {
 
             TextArea {
                 Layout.fillWidth: true
+                font.pointSize: 10
                 readOnly: true
                 enabled: appModel.clientStatus == AppModel.Connected
+                textFormat: TextEdit.RichText
                 text: appModel.chatBuffer
             }
 

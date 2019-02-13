@@ -142,10 +142,15 @@ class AppModel( QObject ):
     def chatBuffer( self ):
         return self._chatBuffer
 
-    def append_message( self, message, error=False ):
-        if error:
-            message = f"<span style='color: #dc322f'><strong>[ERROR]</strong> {message}</span>"
+    def append_error( self, message ):
+        message = f"<span style='color: #DC322F'><strong>[ERROR]</strong> {message}</span>"
+        self.append_message( message )
 
+    def append_info( self, message ):
+        message = f"<span style='color: #586E75'><strong>[INFO]</strong> {message}</span>"
+        self.append_message( message )
+
+    def append_message( self, message, error=False ):
         self._chatBuffer += f"<p style='margin-top: 0; margin-bottom: 1em;'>{message}</p>"
         self.chatBufferChanged.emit()
 
@@ -162,7 +167,7 @@ class AppModel( QObject ):
     @pyqtSlot( str )
     def send_chat_message( self, message ):
         print( f"Sending message: {message}" )
-        self.append_message( message, error=True )
+        self.append_info( message )
 
 class ClientApp( QGuiApplication ):
     def __init__( self, arguments ):

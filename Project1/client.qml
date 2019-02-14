@@ -56,9 +56,16 @@ ApplicationWindow {
                         }
 
                         TextField {
+                            id: screenNameInput
                             Layout.fillWidth: true
                             text: appModel.screenName
                             enabled: appModel.clientStatus == AppModel.Disconnected
+
+                            Binding {
+                                target: appModel
+                                property: "screenName"
+                                value: screenNameInput.text
+                            }
                         }
 
                         Label {
@@ -66,9 +73,16 @@ ApplicationWindow {
                         }
 
                         TextField {
+                            id: serverAddressInput
                             Layout.fillWidth: true
                             text: appModel.serverAddress
                             enabled: appModel.clientStatus == AppModel.Disconnected
+
+                            Binding {
+                                target: appModel
+                                property: "serverAddress"
+                                value: serverAddressInput.text
+                            }
                         }
 
                         Label {
@@ -76,9 +90,16 @@ ApplicationWindow {
                         }
 
                         TextField {
+                            id: serverPortInput
                             Layout.fillWidth: true
                             text: appModel.serverPort
                             enabled: appModel.clientStatus == AppModel.Disconnected
+
+                            Binding {
+                                target: appModel
+                                property: "serverPort"
+                                value: serverPortInput.text
+                            }
                         }
 
                         RowLayout {

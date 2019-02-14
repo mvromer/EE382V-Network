@@ -75,11 +75,6 @@ class AppModel( QObject ):
 
     @screenName.setter
     def screenName( self, screenName ):
-        # If the given value is not a valid screen name, then warn and return.
-        if not is_valid_screen_name( screenName ):
-            warnings.warn( f"Given screen name '{screenName}' is not a valid screen name." )
-            return
-
         if self._screenName == screenName:
             return
         self._screenName = screenName
@@ -104,20 +99,6 @@ class AppModel( QObject ):
 
     @serverPort.setter
     def serverPort( self, serverPort ):
-        # If the given value is a string, which we'd be receiving from a view binding, covert it to
-        # an integer first. If the conversion fails, we warn and return. If the given value as an
-        # integer is not positive, we warn and return.
-        if isinstance( serverPort, str ):
-            try:
-                serverPort = int( serverPort )
-            except:
-                warnings.warn( f"Given server port '{serverPort}' is not a valid port number." )
-                return
-
-        if serverPort <= 0:
-            warnings.warn( f"Given server port '{serverPort}' is not a valid port number." )
-            return
-
         if self._serverPort == serverPort:
             return
         self._serverPort = serverPort
@@ -156,7 +137,29 @@ class AppModel( QObject ):
 
     @pyqtSlot()
     def connect_to_server( self ):
-        print( "Connecting to membership server" )
+        # Trim all the connection parameters.
+        screen_name = self.screenName.strip()
+        server_address = self.serverAddress.strip()
+        server_port = self.serverPort.strip()
+
+        # Screen names can't have spaces in them, otherwise they'd balls up the protocol.
+        if not is_valid_screen_name( screen_name ):
+            self.append_error( f"Invalid screen name {screen_name}. Screen name cannot have spaces." )
+            return
+
+        # Try to convert the port to an integer and validate that it's positive.
+        try:
+            server_port = int( server_port )
+        except:
+            self.append_error( f"Invalid server port number {server_port}." )
+            return
+
+        if server_port <= 0:
+            self.append_error( f"Invalid server port number {server_port}." )
+            return
+
+        self.append_info( "Connecting to membership server" )
+        self.clientStatus = AppModel.ClientStatus.Connecting
         self.clientStatus = AppModel.ClientStatus.Connected
 
     @pyqtSlot()
@@ -186,7 +189,6 @@ class ClientApp( QGuiApplication ):
             help="IP address or hostname of chat membership server to connect to." )
 
         parser.add_argument( "server_port",
-            type=int,
             metavar="<server port>",
             help="Port on the chat membership server to connect to" )
 

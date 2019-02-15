@@ -40,27 +40,33 @@ class ServerConnection( asyncio.Protocol ):
     def __init__( self, app_model ):
         self._app_model = weakref.proxy( app_model )
         self._transport = None
+        self._transport_closed = None
 
-    async def connect( self, screen_name, server_address, server_port ):
+    async def connect( self, screen_name, server_address, server_port, loop ):
         validate_screen_name( screen_name )
         validate_port( server_port )
+        self._transport_closed = loop.create_future()
+        self._transport, _ = await loop.create_connection( lambda: self, server_address, server_port )
 
-        loop = asyncio.get_event_loop()
-        self._transport, _ = await loop.create_connection( self.get_protocol_instance, server_address, server_port )
-
-    def get_protocol_instance( self ):
-        return self
+    def disconnect( self ):
+        if self._transport:
+            print( "Disconnecting from server." )
+            self._transport.close()
+            return self._transport_closed
 
     def get_local_address( self ):
         if not self._transport:
             raise RuntimeError( "Cannot get local address used for server connection. Not connected to server." )
-        return self._transport.get_extra_info( "sockname")
+        return self._transport.get_extra_info( "sockname" )
 
     def connection_made( self, transport ):
         pass
 
     def connection_lost( self, ex ):
+        print( "Disconnected from server" )
+        self._transport_closed.set_result( None )
         self._transport = None
+        self._transport_closed = None
 
     def data_received( self, data ):
         print( f"Data received: {data}" )
@@ -72,24 +78,31 @@ class MessageChannel( asyncio.DatagramProtocol ):
     def __init__( self, app_model ):
         self._app_model = weakref.proxy( app_model )
         self._transport = None
+        self._transport_closed = None
 
-    async def open( self, local_host ):
-        loop = asyncio.get_event_loop()
-        self._transport = await loop.create_datagram_endpoint( self.get_protocol_instance, (local_host, None) )
+    async def open( self, local_host, closed_future, loop ):
+        self._transport_closed = closed_future
+        self._transport, _ = await loop.create_datagram_endpoint( lambda: self, (local_host, None) )
 
-    def get_protocol_instance( self ):
-        return self
+    async def close( self ):
+        if self._transport:
+            print( "Closing message channel" )
+            self._transport.close()
+            return self._transport_closed
 
     def get_local_address( self ):
         if not self._transport:
             raise RuntimeError( "Cannot get local address used for message channel. Message channel not open." )
-        return self._transport.get_extra_info( "sockname")
+        return self._transport.get_extra_info( "sockname" )
 
     def connection_made( self, transport ):
         pass
 
     def connection_lost( self, ex ):
+        future_loop = self._transport_closed.get_loop()
+        future_loop.call_soon_threadsafe( self._transport_closed.set_result, None )
         self._transport = None
+        self._transport_closed = None
 
     def datagram_received( self, data, addr ):
         print( f"Received data from {addr}: {data}" )
@@ -144,8 +157,9 @@ class AppModel( QObject ):
     clientStatusChanged = pyqtSignal( ClientStatus, arguments=["clientStatus"] )
     chatBufferChanged = pyqtSignal()
 
-    def __init__( self, message_channel_thread, parent=None ):
+    def __init__( self, main_loop, message_channel_thread, parent=None ):
         super().__init__( parent )
+        self._main_loop = main_loop
         self._message_channel_thread = message_channel_thread
         self._screenName = None
         self._serverAddress = None
@@ -223,31 +237,58 @@ class AppModel( QObject ):
         self.chatBufferChanged.emit()
 
     @pyqtSlot()
-    def connect_to_server( self ):
+    def connect_client( self ):
         # Trim all the connection parameters.
         screen_name = self.screenName.strip()
         server_address = self.serverAddress.strip()
         server_port = self.serverPort.strip()
 
-        # Schedule to connect to the server in the background so that we aren't blocking the UI.
-        create_task( self.connect_to_server_async( screen_name, server_address, server_port ) )
+        # Asynchronously connect our client.
+        create_task( self.connect_client_async( screen_name, server_address, server_port ) )
 
-    async def connect_to_server_async( self, screen_name, server_address, server_port ):
+    async def connect_client_async( self, screen_name, server_address, server_port ):
         self.append_info( "Connecting to membership server" )
         self.clientStatus = AppModel.ClientStatus.Connecting
 
         try:
             # Connect to the membership server over TCP.
-            await self._server_connection.connect( screen_name, server_address, server_port )
+            await self._server_connection.connect( screen_name, server_address, server_port, self._main_loop )
 
             # Use catch-all to properly handle both IPv4 and IPv6 address tuples. Use the local host
-            # IP used for the server connection since we know it's at least visible to the server.
-            # Use it to setup our UDP message channel.
+            # IP used for the server connection for our UDP message channel since we know it's at
+            # least visible to the server.
             local_host, *_ = self._server_connection.get_local_address()
             print( f"Connected to server on local address {local_host}." )
-            #await self._message_channel.open( local_host )
-            #_, port_channel, *_ = self._message_channel.get_local_address()
-            #print( f"Message channel port: {port_channel}" )
+
+            # Here be dragons: This is where things start to get gnarly (though it's still cleaner
+            # than it could've otherwise turned out). The message channel needs to be opened on the
+            # message channel loop, which lives on our message channel thread. So we use the
+            # asyncio.run_coroutine_threadsafe function to safely schedule our open method on the
+            # correct event loop.
+            #
+            # That function returns a concurrent.futures.Future object, which is NOT the same as an
+            # asyncio.Future object. Namely, you can't await it. HOWEVER, you can wrap it using
+            # asyncio.wrap_future to get an asyncio.Future object, which we can then await on our
+            # main loop.
+            #
+            # This way our main loop can asynchronously wait for the message channel loop to
+            # establish our message channel. Once the open call has completed, we can then safely
+            # get the port the OS gave us for that channel.
+            #
+            # All this because quamash's QEventLoop on Windows doesn't support creating UDP
+            # endpoints. :sob:
+            #
+            # NOTE: The future we await on to know when the message channel is fully closed MUST be
+            # created on the same thread as the main loop. This is because asyncio.Future objects
+            # are NOT thread safe.
+            #
+            closed_future = self._main_loop.create_future()
+            open_coro = self._message_channel.open( local_host, closed_future, self._message_channel_thread.loop )
+            loop = self._message_channel_thread.loop
+            await asyncio.wrap_future( asyncio.run_coroutine_threadsafe( open_coro, loop ) )
+
+            _, port_channel, *_ = self._message_channel.get_local_address()
+            print( f"Message channel port: {port_channel}" )
         except Exception as ex:
             import traceback
             traceback.print_exc()
@@ -258,8 +299,32 @@ class AppModel( QObject ):
         self.clientStatus = AppModel.ClientStatus.Connected
 
     @pyqtSlot()
-    def disconnect_from_server( self ):
-        print( "Disconnecting from membership server" )
+    def disconnect_client( self ):
+        create_task( self.disconnect_client_async() )
+
+    async def disconnect_client_async( self ):
+        # Only await if we're actually disconnecting. We might not be if we never connected.
+        disconnected = self._server_connection.disconnect()
+        if disconnected:
+            await disconnected
+
+        # Here be more dragons: We need to close our message channel on the message channel thread.
+        # We do  this by scheduling the channel's close coroutine onto the message channel loop.
+        # We have to use wrap_future to get a Future object that we can await on our main loop
+        # (which is where this disconnect_client_async coroutine will run).
+        #
+        # The result of awaiting this future is the return value of the channel's close coroutine.
+        # If the channel actually needed closing, that coroutine returns a DIFFERENT future, namely
+        # the one we passed into the channel's open coroutine. The main loop uses this second future
+        # as the one it awaits to ensure the channel is fully closed before continuing.
+        #
+        close_coro = self._message_channel.close()
+        loop = self._message_channel_thread.loop
+        closed = await asyncio.wrap_future( asyncio.run_coroutine_threadsafe( close_coro, loop ) )
+        if closed:
+            print( f"Future: {closed}" )
+            await closed
+
         self.clientStatus = AppModel.ClientStatus.Disconnected
 
     @pyqtSlot( str )
@@ -268,7 +333,8 @@ class AppModel( QObject ):
         self.append_info( message )
 
     @pyqtSlot()
-    def stop_message_channel_loop( self ):
+    def stop_client( self ):
+        self.disconnect_client()
         print( "Stopping message channel loop" )
         self._message_channel_thread.loop.call_soon_threadsafe( self._message_channel_thread.loop.stop )
 
@@ -332,7 +398,7 @@ def main( argv ):
     message_channel_thread = MessageChannelThread( message_channel_loop )
 
     # Create the top-level app model state for the chat client.
-    app_model = AppModel( message_channel_thread )
+    app_model = AppModel( main_loop, message_channel_thread )
 
     cli = app.parse_command_line()
     app_model.screenName = cli.screen_name

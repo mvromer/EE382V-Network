@@ -110,13 +110,13 @@ ApplicationWindow {
                             Button {
                                 text: "Connect"
                                 enabled: appModel.clientStatus == AppModel.Disconnected
-                                onClicked: appModel.connect_to_server()
+                                onClicked: appModel.connect_client()
                             }
 
                             Button {
                                 text: "Disconnect"
                                 enabled: appModel.clientStatus == AppModel.Connected
-                                onClicked: appModel.disconnect_from_server()
+                                onClicked: appModel.disconnect_client()
                             }
                         }
                     }
@@ -149,5 +149,5 @@ ApplicationWindow {
         }
     }
 
-    onClosing: appModel.stop_message_channel_loop()
+    onClosing: appModel.stop_client()
 }

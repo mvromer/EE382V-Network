@@ -59,6 +59,11 @@ class ServerConnection( asyncio.Protocol ):
             raise RuntimeError( "Cannot get local address used for server connection. Not connected to server." )
         return self._transport.get_extra_info( "sockname" )
 
+    def send_hello( self, screen_name, local_ip, local_port ):
+        if self._transport:
+            message = f"HELO {screen_name} {local_ip} {local_port}\n"
+            self._transport.write( message.encode() )
+
     def connection_made( self, transport ):
         pass
 
@@ -294,8 +299,11 @@ class AppModel( QObject ):
             loop = self._message_channel_thread.loop
             await asyncio.wrap_future( asyncio.run_coroutine_threadsafe( open_coro, loop ) )
 
-            _, port_channel, *_ = self._message_channel.get_local_address()
-            print( f"Message channel port: {port_channel}" )
+            _, local_port, *_ = self._message_channel.get_local_address()
+            print( f"Message channel port: {local_port}" )
+
+            # Use the local port info to say hello to the server.
+            self._server_connection.send_hello( screen_name, local_host, local_port )
         except Exception as ex:
             import traceback
             traceback.print_exc()

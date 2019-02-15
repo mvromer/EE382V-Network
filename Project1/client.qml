@@ -148,4 +148,6 @@ ApplicationWindow {
             }
         }
     }
+
+    onClosing: appModel.stop_message_channel_loop()
 }

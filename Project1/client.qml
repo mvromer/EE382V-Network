@@ -7,6 +7,7 @@ import QtQuick.Layouts 1.11
 import Chatter.Client 1.0
 
 ApplicationWindow {
+    id: clientWindow
     width: 800
     height: 600
     visible: true
@@ -149,5 +150,15 @@ ApplicationWindow {
         }
     }
 
-    onClosing: appModel.stop_client()
+    onClosing: {
+        if( !appModel.clientStopped ) {
+            close.accepted = false
+            appModel.stop_client()
+        }
+    }
+
+    Connections {
+        target: appModel
+        onClientStoppedChanged: clientWindow.close()
+    }
 }

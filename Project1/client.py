@@ -99,6 +99,7 @@ class MessageChannel( asyncio.DatagramProtocol ):
         pass
 
     def connection_lost( self, ex ):
+        print( "Closed message channel" )
         future_loop = self._transport_closed.get_loop()
         future_loop.call_soon_threadsafe( self._transport_closed.set_result, None )
         self._transport = None
@@ -151,6 +152,7 @@ class AppModel( QObject ):
 
     Q_ENUM( ClientStatus )
 
+    clientStoppedChanged = pyqtSignal()
     screenNameChanged = pyqtSignal()
     serverAddressChanged = pyqtSignal()
     serverPortChanged = pyqtSignal()
@@ -159,6 +161,7 @@ class AppModel( QObject ):
 
     def __init__( self, main_loop, message_channel_thread, parent=None ):
         super().__init__( parent )
+        self._client_stopped = main_loop.create_future()
         self._main_loop = main_loop
         self._message_channel_thread = message_channel_thread
         self._screenName = None
@@ -169,6 +172,10 @@ class AppModel( QObject ):
         self._chatBuffer = ""
         self._server_connection = ServerConnection( self )
         self._message_channel = MessageChannel( self )
+
+    @pyqtProperty( bool, notify=clientStoppedChanged )
+    def clientStopped( self ):
+        return self._client_stopped.done()
 
     @pyqtProperty( "QString", notify=screenNameChanged )
     def screenName( self ):
@@ -334,7 +341,15 @@ class AppModel( QObject ):
 
     @pyqtSlot()
     def stop_client( self ):
-        self.disconnect_client()
+        create_task( self.stop_client_async() )
+
+    async def stop_client_async( self ):
+        await self.disconnect_client_async()
+
+        print( "Stopping client" )
+        self._client_stopped.set_result( None )
+        self.clientStoppedChanged.emit()
+
         print( "Stopping message channel loop" )
         self._message_channel_thread.loop.call_soon_threadsafe( self._message_channel_thread.loop.stop )
 
@@ -413,7 +428,7 @@ def main( argv ):
 
     with main_loop:
         message_channel_thread.start()
-        main_loop.run_forever()
+        main_loop.run_until_complete( app_model._client_stopped )
         message_channel_thread.join()
         print( "Leaving app" )
 

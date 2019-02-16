@@ -54,6 +54,14 @@ class RJCT:
     def new( cls, data ):
         return cls( screen_name=data )
 
+class JOIN:
+    def __init__( self, member ):
+        self.member = member
+
+    @classmethod
+    def new( cls, data ):
+        return cls( ChatMember( *data.split( " " ) ) )
+
 def parse_message( message ):
     message_type, _, message_data = message.partition( " " )
 
@@ -61,6 +69,8 @@ def parse_message( message ):
         return ACPT.new( message_data )
     elif message_type == "RJCT":
         return RJCT.new( message_data )
+    elif message_type == "JOIN":
+        return JOIN.new( message_data )
 
 class ServerConnection( asyncio.Protocol ):
     def __init__( self, app_model ):
@@ -192,16 +202,25 @@ class DatagramChannel( asyncio.DatagramProtocol ):
 
     def datagram_received( self, data, addr ):
         print( f"UDP data received from {addr}: {data}" )
-        print( f"New message: {parse_message( data.decode() )}" )
+        # Decode the bytes into our message and pull everything but the trailing newline.
+        message = data.decode()[:-1]
+        handle_message_coro = self._app_model.handle_message_async( parse_message( message ) )
+        asyncio.run_coroutine_threadsafe( handle_message_coro, self._app_model.main_loop )
 
     def _send_datagram_message( self, message ):
         pass
 
 class ChatMember:
     def __init__( self, screen_name, address, port ):
-        self.screenName = screen_name
+        self.screen_name = screen_name
         self.address = address
         self.port = port
+
+    def __eq__( self, other ):
+        if isinstance( other, ChatMember ):
+            return (self.screen_name == other.screen_name and
+                self.address == other.address and
+                self.port == other.port)
 
 class ChatMemberListModel( QAbstractListModel ):
     def __init__( self, parent=None ):
@@ -217,13 +236,14 @@ class ChatMemberListModel( QAbstractListModel ):
 
         if role == Qt.DisplayRole:
             iRow = index.row()
-            return self._members[iRow].screenName
+            return self._members[iRow].screen_name
 
         return QVariant()
 
     def add_member( self, member ):
         self.beginInsertRows( QModelIndex(), self.rowCount(), self.rowCount() )
-        self._members.append( member )
+        if member not in self._members:
+            self._members.append( member )
         self.endInsertRows()
 
     def add_members( self, members ):
@@ -461,6 +481,9 @@ class AppModel( QObject ):
         elif isinstance( message, RJCT ):
             self.echo_error( f"Cannot connect to server. Screen name {self._screen_name} in use." )
             self.disconnect_client()
+        elif isinstance( message, JOIN ):
+            self.echo_info( f"{message.member.screen_name} has entered the chat." )
+            self._chat_members.add_member( message.member )
 
     def set_chat_members( self, members ):
         self._chat_members.clear()

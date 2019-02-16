@@ -69,11 +69,11 @@ class ServerConnection( asyncio.Protocol ):
         self._transport_closed = None
         self._message_chunks = []
 
-    async def connect( self, screen_name, server_address, server_port, loop ):
+    async def connect( self, screen_name, server_address, server_port ):
         validate_screen_name( screen_name )
         validate_port( server_port )
-        self._transport_closed = loop.create_future()
-        self._transport, _ = await loop.create_connection( lambda: self,
+        self._transport_closed = self._app_model.main_loop.create_future()
+        self._transport, _ = await self._app_model.main_loop.create_connection( lambda: self,
             server_address,
             server_port,
             family=socket.AF_INET )
@@ -161,9 +161,10 @@ class DatagramChannel( asyncio.DatagramProtocol ):
         self._transport_closed = None
         self._chat_members = []
 
-    async def open( self, local_host, closed_future, loop ):
+    async def open( self, local_host, closed_future ):
         self._transport_closed = closed_future
-        self._transport, _ = await loop.create_datagram_endpoint( lambda: self, (local_host, None) )
+        self._transport, _ = await self._app_model.datagram_channel_loop.create_datagram_endpoint( lambda: self,
+            (local_host, None) )
 
     async def close( self ):
         if self._transport:
@@ -357,7 +358,7 @@ class AppModel( QObject ):
 
         try:
             # Connect to the membership server over TCP.
-            await self._server_connection.connect( screen_name, server_address, server_port, self._main_loop )
+            await self._server_connection.connect( screen_name, server_address, server_port )
 
             # Use catch-all to properly handle both IPv4 and IPv6 address tuples. Use the local host
             # IP used for the server connection for our UDP datagram channel since we know it's at
@@ -388,7 +389,7 @@ class AppModel( QObject ):
             # are NOT thread safe.
             #
             closed_future = self._main_loop.create_future()
-            open_coro = self._datagram_channel.open( local_host, closed_future, self.datagram_channel_loop )
+            open_coro = self._datagram_channel.open( local_host, closed_future )
             await asyncio.wrap_future( asyncio.run_coroutine_threadsafe( open_coro, self.datagram_channel_loop ) )
 
             _, local_port, *_ = self._datagram_channel.get_local_address()

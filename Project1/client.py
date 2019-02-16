@@ -506,7 +506,7 @@ class AppModel( QObject ):
         create_task( self.stop_client_async() )
 
     async def stop_client_async( self ):
-        await self.disconnect_client_async()
+        await self.disconnect_client_async( send_exit=(self._client_status == AppModel.ClientStatus.Connected) )
 
         print( "Stopping client" )
         self._client_stopped.set_result( None )

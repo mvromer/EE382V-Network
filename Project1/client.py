@@ -324,15 +324,15 @@ class AppModel( QObject ):
     def chatBuffer( self ):
         return self._chat_buffer
 
-    def append_error( self, message ):
+    def echo_error( self, message ):
         message = f"<span style='color: #DC322F'><strong>[ERROR]</strong> {message}</span>"
-        self.append_message( message )
+        self.echo_message( message )
 
-    def append_info( self, message ):
+    def echo_info( self, message ):
         message = f"<span style='color: #586E75'><strong>[INFO]</strong> {message}</span>"
-        self.append_message( message )
+        self.echo_message( message )
 
-    def append_message( self, message, error=False ):
+    def echo_message( self, message ):
         self._chat_buffer += f"<p style='margin-top: 0; margin-bottom: 1em;'>{message}</p>"
         self.chatBufferChanged.emit()
 
@@ -347,7 +347,7 @@ class AppModel( QObject ):
         create_task( self.connect_client_async( screen_name, server_address, server_port ) )
 
     async def connect_client_async( self, screen_name, server_address, server_port ):
-        self.append_info( "Connecting to membership server" )
+        self.echo_info( "Connecting to membership server" )
         self.clientStatus = AppModel.ClientStatus.Connecting
 
         try:
@@ -395,10 +395,10 @@ class AppModel( QObject ):
         except Exception as ex:
             import traceback
             traceback.print_exc()
-            self.append_error( str( ex ) )
+            self.echo_error( str( ex ) )
             return
 
-        self.append_info( f"Connected to membership server {server_address}:{server_port}." )
+        self.echo_info( f"Connected to membership server {server_address}:{server_port}." )
         self.clientStatus = AppModel.ClientStatus.Connected
 
     @pyqtSlot()
@@ -433,7 +433,7 @@ class AppModel( QObject ):
     @pyqtSlot( str )
     def send_chat_message( self, message ):
         print( f"Sending message: {message}" )
-        self.append_info( message )
+        self.echo_info( message )
 
     @pyqtSlot()
     def stop_client( self ):

@@ -202,7 +202,6 @@ class DatagramChannel( asyncio.DatagramProtocol ):
         self._chat_members = members
 
     async def add_chat_member( self, member ):
-        print( "Want to add member" )
         print( f"{self._chat_members}")
         if member not in self._chat_members:
             self._chat_members.append( member )
@@ -448,7 +447,7 @@ class AppModel( QObject ):
             await asyncio.wrap_future( asyncio.run_coroutine_threadsafe( open_coro, self.datagram_channel_loop ) )
 
             _, local_port, *_ = self._datagram_channel.get_local_address()
-            print( f"datagram channel port: {local_port}" )
+            print( f"Datagram channel port: {local_port}" )
 
             # Use the local port info to say hello to the server.
             self._server_connection.send_hello( screen_name, local_host, local_port )

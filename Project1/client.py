@@ -262,7 +262,7 @@ class AppModel( QObject ):
         self._server_port = None
         self._client_status = AppModel.ClientStatus.Disconnected
         self._chat_members = ChatMemberListModel()
-        self._chatBuffer = ""
+        self._chat_buffer = ""
         self._server_connection = ServerConnection( self )
         self._datagram_channel = DatagramChannel( self )
 
@@ -322,7 +322,7 @@ class AppModel( QObject ):
 
     @pyqtProperty( "QString", notify=chatBufferChanged )
     def chatBuffer( self ):
-        return self._chatBuffer
+        return self._chat_buffer
 
     def append_error( self, message ):
         message = f"<span style='color: #DC322F'><strong>[ERROR]</strong> {message}</span>"
@@ -333,7 +333,7 @@ class AppModel( QObject ):
         self.append_message( message )
 
     def append_message( self, message, error=False ):
-        self._chatBuffer += f"<p style='margin-top: 0; margin-bottom: 1em;'>{message}</p>"
+        self._chat_buffer += f"<p style='margin-top: 0; margin-bottom: 1em;'>{message}</p>"
         self.chatBufferChanged.emit()
 
     @pyqtSlot()

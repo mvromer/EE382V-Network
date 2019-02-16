@@ -257,11 +257,11 @@ class AppModel( QObject ):
         self._client_stopped = main_loop.create_future()
         self._main_loop = main_loop
         self._datagram_channel_thread = datagram_channel_thread
-        self._screenName = None
-        self._serverAddress = None
-        self._serverPort = None
-        self._clientStatus = AppModel.ClientStatus.Disconnected
-        self._chatMembers = ChatMemberListModel()
+        self._screen_name = None
+        self._server_address = None
+        self._server_port = None
+        self._client_status = AppModel.ClientStatus.Disconnected
+        self._chat_members = ChatMemberListModel()
         self._chatBuffer = ""
         self._server_connection = ServerConnection( self )
         self._datagram_channel = DatagramChannel( self )
@@ -272,53 +272,53 @@ class AppModel( QObject ):
 
     @pyqtProperty( "QString", notify=screenNameChanged )
     def screenName( self ):
-        return self._screenName
+        return self._screen_name
 
     @screenName.setter
     def screenName( self, screenName ):
-        if self._screenName == screenName:
+        if self._screen_name == screenName:
             return
-        self._screenName = screenName
+        self._screen_name = screenName
         self.screenNameChanged.emit()
 
     @pyqtProperty( "QString", notify=serverAddressChanged )
     def serverAddress( self ):
-        return self._serverAddress
+        return self._server_address
 
     @serverAddress.setter
     def serverAddress( self, serverAddress ):
-        if self._serverAddress == serverAddress:
+        if self._server_address == serverAddress:
             return
-        self._serverAddress = serverAddress
+        self._server_address = serverAddress
         self.serverAddressChanged.emit()
 
     @pyqtProperty( "QString", notify=serverPortChanged )
     def serverPort( self ):
-        if self._serverPort is None:
+        if self._server_port is None:
             return ""
-        return str( self._serverPort )
+        return str( self._server_port )
 
     @serverPort.setter
     def serverPort( self, serverPort ):
-        if self._serverPort == serverPort:
+        if self._server_port == serverPort:
             return
-        self._serverPort = serverPort
+        self._server_port = serverPort
         self.serverPortChanged.emit()
 
     @pyqtProperty( ClientStatus, notify=clientStatusChanged )
     def clientStatus( self ):
-        return self._clientStatus
+        return self._client_status
 
     @clientStatus.setter
     def clientStatus( self, clientStatus ):
-        if self._clientStatus == clientStatus:
+        if self._client_status == clientStatus:
             return
-        self._clientStatus = clientStatus
+        self._client_status = clientStatus
         self.clientStatusChanged.emit( clientStatus )
 
     @pyqtProperty( ChatMemberListModel, constant=True )
     def chatMembers( self ):
-        return self._chatMembers
+        return self._chat_members
 
     @pyqtProperty( "QString", notify=chatBufferChanged )
     def chatBuffer( self ):
@@ -450,8 +450,8 @@ class AppModel( QObject ):
         self._datagram_channel_thread.loop.call_soon_threadsafe( self._datagram_channel_thread.loop.stop )
 
     def set_chat_members( self, members ):
-        self._chatMembers.clear()
-        self._chatMembers.add_members( members )
+        self._chat_members.clear()
+        self._chat_members.add_members( members )
 
         # Update the channel members on the datagram channel, which runs on the datagram channel
         # thread as opposed to the main loop. Do so my scheduling a task on the datagram channel's

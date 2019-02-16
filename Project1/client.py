@@ -218,8 +218,12 @@ class DatagramChannel( asyncio.DatagramProtocol ):
             print( f"Removing {screen_name} from index {remove_idx} in datagram member list." )
             del self._chat_members[remove_idx]
 
-    async def send_message( self, message ):
-        pass
+    async def send_message( self, screen_name, message ):
+        data = f"MESG {screen_name}: {message}".encode()
+        for member in self._chat_members:
+            if member.screen_name != screen_name:
+                print( f"Sending '{message}' to {member.screen_name}:{member.address}:{member.port}." )
+                self._send_datagram( data, member )
 
     def connection_lost( self, ex ):
         print( "Closed datagram channel." )
@@ -235,8 +239,9 @@ class DatagramChannel( asyncio.DatagramProtocol ):
         handle_message_coro = self._app_model.handle_message_async( parse_message( message ) )
         asyncio.run_coroutine_threadsafe( handle_message_coro, self._app_model.main_loop )
 
-    def _send_datagram_message( self, message ):
-        pass
+    def _send_datagram( self, data, member ):
+        if self._transport:
+            self._transport.sendto( data, (member.address, int(member.port)) )
 
 class ChatMember:
     def __init__( self, screen_name, address, port ):
@@ -515,6 +520,9 @@ class AppModel( QObject ):
         print( f"Sending message: {message}" )
         self.write_chat_message( message, self._screen_name )
 
+        send_message_coro = self._datagram_channel.send_message( self._screen_name, message )
+        asyncio.run_coroutine_threadsafe( send_message_coro, self.datagram_channel_loop )
+
     @pyqtSlot()
     def stop_client( self ):
         create_task( self.stop_client_async() )
@@ -563,6 +571,10 @@ class AppModel( QObject ):
                 self._exit_acked.set_result( None )
             else:
                 self._chat_members.remove_member_by_name( message.screen_name )
+
+                # Also remove the member from the datagram channel's list of members.
+                remove_member_coro = self._datagram_channel.remove_chat_member_by_name( message.screen_name )
+                asyncio.run_coroutine_threadsafe( remove_member_coro, self.datagram_channel_loop )
 
 class ClientApp( QGuiApplication ):
     def __init__( self, arguments ):

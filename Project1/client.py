@@ -207,6 +207,17 @@ class DatagramChannel( asyncio.DatagramProtocol ):
             self._chat_members.append( member )
             print( f"Adding member {member.screen_name} to datagram member list" )
 
+    async def remove_chat_member_by_name( self, screen_name ):
+        remove_idx = None
+        for (member_idx, member) in enumerate( self._chat_members ):
+            if member.screen_name == screen_name:
+                remove_idx = member_idx
+                break
+
+        if remove_idx is not None:
+            print( f"Removing {screen_name} from index {remove_idx} in datagram member list." )
+            del self._chat_members[remove_idx]
+
     async def send_message( self, message ):
         pass
 
@@ -276,9 +287,9 @@ class ChatMemberListModel( QAbstractListModel ):
                 break
 
         if remove_idx is not None:
-            self.beginRemoveRows( QModelIndex(), member_idx, member_idx )
-            print( f"Remove idx {member_idx}." )
-            del self._members[member_idx]
+            print( f"Removing {screen_name} from index {remove_idx} in main chat member list." )
+            self.beginRemoveRows( QModelIndex(), remove_idx, remove_idx )
+            del self._members[remove_idx]
             self.endRemoveRows()
 
     def clear( self ):
@@ -543,6 +554,7 @@ class AppModel( QObject ):
                 add_member_coro = self._datagram_channel.add_chat_member( message.member )
                 asyncio.run_coroutine_threadsafe( add_member_coro, self.datagram_channel_loop )
         elif isinstance( message, EXIT ):
+            self.echo_info( f"{message.screen_name} has left the building!" )
             if message.screen_name == self._screen_name:
                 self._exit_acked.set_result( None )
             else:

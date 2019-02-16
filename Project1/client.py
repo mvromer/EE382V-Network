@@ -70,6 +70,16 @@ class EXIT:
     def new( cls, data ):
         return cls( screen_name=data )
 
+class MESG:
+    def __init__( self, screen_name, message ):
+        self.screen_name = screen_name
+        self.message = message
+
+    @classmethod
+    def new( cls, data ):
+        screen_name, _, message = data.partition( ": " )
+        return cls( screen_name, message )
+
 def parse_message( message ):
     message_type, _, message_data = message.partition( " " )
 
@@ -81,6 +91,8 @@ def parse_message( message ):
         return JOIN.new( message_data )
     elif message_type == "EXIT":
         return EXIT.new( message_data )
+    elif message_type == "MESG":
+        return MESG.new( message_data )
 
 class ServerConnection( asyncio.Protocol ):
     def __init__( self, app_model ):
@@ -219,7 +231,7 @@ class DatagramChannel( asyncio.DatagramProtocol ):
             del self._chat_members[remove_idx]
 
     async def send_message( self, screen_name, message ):
-        data = f"MESG {screen_name}: {message}".encode()
+        data = f"MESG {screen_name}: {message}\n".encode()
         for member in self._chat_members:
             if member.screen_name != screen_name:
                 print( f"Sending '{message}' to {member.screen_name}:{member.address}:{member.port}." )
@@ -575,6 +587,8 @@ class AppModel( QObject ):
                 # Also remove the member from the datagram channel's list of members.
                 remove_member_coro = self._datagram_channel.remove_chat_member_by_name( message.screen_name )
                 asyncio.run_coroutine_threadsafe( remove_member_coro, self.datagram_channel_loop )
+        elif isinstance( message, MESG ):
+            self.write_chat_message( message.message, message.screen_name )
 
 class ClientApp( QGuiApplication ):
     def __init__( self, arguments ):

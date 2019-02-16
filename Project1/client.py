@@ -457,7 +457,9 @@ class AppModel( QObject ):
     def handle_message( self, message ):
         if isinstance( message, ACPT ):
             self.set_chat_members( message.members )
-
+        elif isinstance( message, RJCT ):
+            self.echo_error( f"Cannot connect to server. Screen name {self._screen_name} in use." )
+            self.disconnect_client()
 
     def set_chat_members( self, members ):
         self._chat_members.clear()

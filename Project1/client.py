@@ -395,15 +395,19 @@ class AppModel( QObject ):
     def chatBuffer( self ):
         return self._chat_buffer
 
-    def echo_error( self, message ):
-        message = f"<span style='color: #DC322F'><strong>[ERROR]</strong> {message}</span>"
-        self.echo_message( message )
+    def write_chat_error( self, error ):
+        error = f"<span style='color: #DC322F'><strong>[ERROR]</strong> {error}</span>"
+        self.write_to_chat_buffer( error )
 
-    def echo_info( self, message ):
-        message = f"<span style='color: #586E75'><strong>[INFO]</strong> {message}</span>"
-        self.echo_message( message )
+    def write_chat_info( self, info ):
+        info = f"<span style='color: #586E75'><strong>[INFO]</strong> {info}</span>"
+        self.write_to_chat_buffer( info )
 
-    def echo_message( self, message ):
+    def write_chat_message( self, message, screen_name ):
+        message = f"<span style='color: #268BD2'>[{screen_name}]</span> {message}"
+        self.write_to_chat_buffer( message )
+
+    def write_to_chat_buffer( self, message ):
         self._chat_buffer += f"<p style='margin-top: 0; margin-bottom: 1em;'>{message}</p>"
         self.chatBufferChanged.emit()
 
@@ -418,7 +422,7 @@ class AppModel( QObject ):
         create_task( self.connect_client_async( screen_name, server_address, server_port ) )
 
     async def connect_client_async( self, screen_name, server_address, server_port ):
-        self.echo_info( "Connecting to membership server" )
+        self.write_chat_info( "Connecting to membership server" )
         self.clientStatus = AppModel.ClientStatus.Connecting
 
         try:
@@ -463,12 +467,12 @@ class AppModel( QObject ):
             # Use the local port info to say hello to the server.
             self._server_connection.send_hello( screen_name, local_host, local_port )
         except Exception as ex:
-            import traceback
-            traceback.print_exc()
-            self.echo_error( str( ex ) )
+            self.write_chat_error( str( ex ) )
+            # XXX: Might need to cleanup connections here.
+            self.clientStatus = AppModel.ClientStatus.Disconnected
             return
 
-        self.echo_info( f"Connected to membership server {server_address}:{server_port}." )
+        self.write_chat_info( f"Connected to membership server {server_address}:{server_port}." )
         self.clientStatus = AppModel.ClientStatus.Connected
 
     @pyqtSlot()
@@ -509,7 +513,7 @@ class AppModel( QObject ):
     @pyqtSlot( str )
     def send_chat_message( self, message ):
         print( f"Sending message: {message}" )
-        self.echo_info( message )
+        self.write_chat_message( message, self._screen_name )
 
     @pyqtSlot()
     def stop_client( self ):
@@ -539,13 +543,13 @@ class AppModel( QObject ):
             set_members_coro = self._datagram_channel.set_chat_members( message.members )
             asyncio.run_coroutine_threadsafe( set_members_coro, self.datagram_channel_loop )
         elif isinstance( message, RJCT ):
-            self.echo_error( f"Cannot connect to server. Screen name {self._screen_name} in use." )
+            self.write_chat_error( f"Cannot connect to server. Screen name {self._screen_name} in use." )
             # NOTE: On a RJCT, we do NOT send EXIT because the server will NOT send an
             # acknowledgement back. If we were to await an acknowledgement during our disconnection
             # logic, our client would wait indefinitely.
             self.disconnect_client( send_exit=False )
         elif isinstance( message, JOIN ):
-            self.echo_info( f"{message.member.screen_name} has entered the chat." )
+            self.write_chat_info( f"{message.member.screen_name} has entered the chat." )
             # Don't add the member if that member is our client.
             if message.member.screen_name != self._screen_name:
                 self._chat_members.add_member( message.member )
@@ -554,7 +558,7 @@ class AppModel( QObject ):
                 add_member_coro = self._datagram_channel.add_chat_member( message.member )
                 asyncio.run_coroutine_threadsafe( add_member_coro, self.datagram_channel_loop )
         elif isinstance( message, EXIT ):
-            self.echo_info( f"{message.screen_name} has left the building!" )
+            self.write_chat_info( f"{message.screen_name} has left the building!" )
             if message.screen_name == self._screen_name:
                 self._exit_acked.set_result( None )
             else:

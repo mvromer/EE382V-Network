@@ -198,7 +198,15 @@ class DatagramChannel( asyncio.DatagramProtocol ):
         return self._transport.get_extra_info( "sockname" )
 
     async def set_chat_members( self, members ):
+        print( "Resetting datagram member list" )
         self._chat_members = members
+
+    async def add_chat_member( self, member ):
+        print( "Want to add member" )
+        print( f"{self._chat_members}")
+        if member not in self._chat_members:
+            self._chat_members.append( member )
+            print( f"Adding member {member.screen_name} to datagram member list" )
 
     async def send_message( self, message ):
         pass
@@ -512,7 +520,14 @@ class AppModel( QObject ):
 
     async def handle_message_async( self, message ):
         if isinstance( message, ACPT ):
-            self.set_chat_members( message.members )
+            self._chat_members.clear()
+            self._chat_members.add_members( message.members )
+
+            # Update the channel members on the datagram channel, which runs on the datagram channel
+            # thread as opposed to the main loop. Do so my scheduling a task on the datagram
+            # channel's event loop.
+            set_members_coro = self._datagram_channel.set_chat_members( message.members )
+            asyncio.run_coroutine_threadsafe( set_members_coro, self.datagram_channel_loop )
         elif isinstance( message, RJCT ):
             self.echo_error( f"Cannot connect to server. Screen name {self._screen_name} in use." )
             # NOTE: On a RJCT, we do NOT send EXIT because the server will NOT send an
@@ -521,22 +536,18 @@ class AppModel( QObject ):
             self.disconnect_client( send_exit=False )
         elif isinstance( message, JOIN ):
             self.echo_info( f"{message.member.screen_name} has entered the chat." )
-            self._chat_members.add_member( message.member )
+            # Don't add the member if that member is our client.
+            if message.member.screen_name != self._screen_name:
+                self._chat_members.add_member( message.member )
+
+                # Also add the member to the datagram channel's list of members to send messages to.
+                add_member_coro = self._datagram_channel.add_chat_member( message.member )
+                asyncio.run_coroutine_threadsafe( add_member_coro, self.datagram_channel_loop )
         elif isinstance( message, EXIT ):
             if message.screen_name == self._screen_name:
                 self._exit_acked.set_result( None )
             else:
                 self._chat_members.remove_member_by_name( message.screen_name )
-
-    def set_chat_members( self, members ):
-        self._chat_members.clear()
-        self._chat_members.add_members( members )
-
-        # Update the channel members on the datagram channel, which runs on the datagram channel
-        # thread as opposed to the main loop. Do so my scheduling a task on the datagram channel's
-        # event loop.
-        set_members_coro = self._datagram_channel.set_chat_members( members )
-        asyncio.run_coroutine_threadsafe( set_members_coro, self.datagram_channel_loop )
 
 class ClientApp( QGuiApplication ):
     def __init__( self, arguments ):

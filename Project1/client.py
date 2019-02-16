@@ -62,6 +62,14 @@ class JOIN:
     def new( cls, data ):
         return cls( ChatMember( *data.split( " " ) ) )
 
+class EXIT:
+    def __init__( self, screen_name ):
+        self.screen_name = screen_name
+
+    @classmethod
+    def new( cls, data ):
+        return cls( screen_name=data )
+
 def parse_message( message ):
     message_type, _, message_data = message.partition( " " )
 
@@ -71,6 +79,8 @@ def parse_message( message ):
         return RJCT.new( message_data )
     elif message_type == "JOIN":
         return JOIN.new( message_data )
+    elif message_type == "EXIT":
+        return EXIT.new( message_data )
 
 class ServerConnection( asyncio.Protocol ):
     def __init__( self, app_model ):
@@ -218,9 +228,7 @@ class ChatMember:
 
     def __eq__( self, other ):
         if isinstance( other, ChatMember ):
-            return (self.screen_name == other.screen_name and
-                self.address == other.address and
-                self.port == other.port)
+            return self.screen_name == other.screen_name
 
 class ChatMemberListModel( QAbstractListModel ):
     def __init__( self, parent=None ):
@@ -231,6 +239,7 @@ class ChatMemberListModel( QAbstractListModel ):
         return len( self._members )
 
     def data( self, index, role=Qt.DisplayRole ):
+        print( f"Get data for {index.row()} and {role}" )
         if not index.isValid():
             return QVariant()
 
@@ -247,15 +256,32 @@ class ChatMemberListModel( QAbstractListModel ):
         self.endInsertRows()
 
     def add_members( self, members ):
+        print( self.rowCount() )
         self.beginInsertRows( QModelIndex(), self.rowCount(), self.rowCount() + len( members ) - 1 )
         self._members += members
         self.endInsertRows()
 
+    def remove_member_by_name( self, screen_name ):
+        remove_idx = None
+        for (member_idx, member) in enumerate( self._members ):
+            if member.screen_name == screen_name:
+                remove_idx = member_idx
+                break
+
+        if remove_idx is not None:
+            self.beginRemoveRows( QModelIndex(), member_idx, member_idx )
+            print( f"Remove idx {member_idx}." )
+            del self._members[member_idx]
+            self.endRemoveRows()
+
     def clear( self ):
         if self.rowCount() > 0:
             self.beginRemoveRows( QModelIndex(), 0, self.rowCount() - 1 )
+            self.beginResetModel()
             self._members = []
+            self.endResetModel()
             self.endRemoveRows()
+            print( "Cleared" )
 
 class AppModel( QObject ):
     class ClientStatus:
@@ -283,6 +309,7 @@ class AppModel( QObject ):
         self._chat_buffer = ""
         self._server_connection = ServerConnection( self )
         self._datagram_channel = DatagramChannel( self )
+        self._exit_acked = None
 
     @property
     def main_loop( self ):
@@ -431,7 +458,16 @@ class AppModel( QObject ):
         create_task( self.disconnect_client_async() )
 
     async def disconnect_client_async( self ):
-        # Only await if we're actually disconnecting. We might not be if we never connected.
+        # Tell the server we want to exit and await the acknowledgement only if the client is
+        # already connected to the server.
+        if self.clientStatus == AppModel.ClientStatus.Connected:
+            self._exit_acked = self.main_loop.create_future()
+            self._server_connection.send_exit()
+            print( "Awaiting exit acknowledgement" )
+            await self._exit_acked
+            print( "Exit acknowledged" )
+
+        # Disconnect from the server. Wait for the disconnect to finalize.
         disconnected = self._server_connection.disconnect()
         if disconnected:
             await disconnected
@@ -484,6 +520,11 @@ class AppModel( QObject ):
         elif isinstance( message, JOIN ):
             self.echo_info( f"{message.member.screen_name} has entered the chat." )
             self._chat_members.add_member( message.member )
+        elif isinstance( message, EXIT ):
+            if message.screen_name == self._screen_name:
+                self._exit_acked.set_result( None )
+            else:
+                self._chat_members.remove_member_by_name( message.screen_name )
 
     def set_chat_members( self, members ):
         self._chat_members.clear()

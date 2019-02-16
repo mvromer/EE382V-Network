@@ -95,23 +95,20 @@ class ServerConnection( asyncio.Protocol ):
     def send_exit( self ):
         self._send_server_message( "EXIT\n" )
 
-    def connection_made( self, transport ):
-        pass
-
     def connection_lost( self, ex ):
-        print( "Disconnected from server" )
+        print( "Disconnected from server." )
         self._transport_closed.set_result( None )
         self._transport = None
         self._transport_closed = None
 
     def data_received( self, data ):
-        print( f"Data received: {data}" )
+        print( f"TCP data received: {data}" )
         for message in self._feed_data( data ):
             print( f"New message: {message}")
             self._app_model.handle_message( parse_message( message ) )
 
     def eof_received( self ):
-        print( f"EOF received" )
+        print( f"EOF received." )
 
     def _send_server_message( self, message ):
         if self._transport:
@@ -170,7 +167,7 @@ class DatagramChannel( asyncio.DatagramProtocol ):
 
     async def close( self ):
         if self._transport:
-            print( "Closing datagram channel" )
+            print( "Closing datagram channel." )
             self._transport.close()
             return self._transport_closed
 
@@ -185,21 +182,16 @@ class DatagramChannel( asyncio.DatagramProtocol ):
     async def send_message( self, message ):
         pass
 
-    def connection_made( self, transport ):
-        pass
-
     def connection_lost( self, ex ):
-        print( "Closed datagram channel" )
+        print( "Closed datagram channel." )
         future_loop = self._transport_closed.get_loop()
         future_loop.call_soon_threadsafe( self._transport_closed.set_result, None )
         self._transport = None
         self._transport_closed = None
 
     def datagram_received( self, data, addr ):
-        print( f"Received data from {addr}: {data}" )
-
-    def error_received( self, ex ):
-        print( f"Error received: {ex}" )
+        print( f"UDP data received from {addr}: {data}" )
+        print( f"New message: {parse_message( data.decode() )}" )
 
     def _send_datagram_message( self, message ):
         pass
@@ -270,6 +262,14 @@ class AppModel( QObject ):
         self._chat_buffer = ""
         self._server_connection = ServerConnection( self )
         self._datagram_channel = DatagramChannel( self )
+
+    @property
+    def main_loop( self ):
+        return self._main_loop
+
+    @property
+    def datagram_channel_loop( self ):
+        return self._datagram_channel_thread.loop
 
     @pyqtProperty( bool, notify=clientStoppedChanged )
     def clientStopped( self ):
@@ -388,9 +388,8 @@ class AppModel( QObject ):
             # are NOT thread safe.
             #
             closed_future = self._main_loop.create_future()
-            open_coro = self._datagram_channel.open( local_host, closed_future, self._datagram_channel_thread.loop )
-            loop = self._datagram_channel_thread.loop
-            await asyncio.wrap_future( asyncio.run_coroutine_threadsafe( open_coro, loop ) )
+            open_coro = self._datagram_channel.open( local_host, closed_future, self.datagram_channel_loop )
+            await asyncio.wrap_future( asyncio.run_coroutine_threadsafe( open_coro, self.datagram_channel_loop ) )
 
             _, local_port, *_ = self._datagram_channel.get_local_address()
             print( f"datagram channel port: {local_port}" )
@@ -427,10 +426,8 @@ class AppModel( QObject ):
         # as the one it awaits to ensure the channel is fully closed before continuing.
         #
         close_coro = self._datagram_channel.close()
-        loop = self._datagram_channel_thread.loop
-        closed = await asyncio.wrap_future( asyncio.run_coroutine_threadsafe( close_coro, loop ) )
+        closed = await asyncio.wrap_future( asyncio.run_coroutine_threadsafe( close_coro, self.datagram_channel_loop ) )
         if closed:
-            print( f"Future: {closed}" )
             await closed
 
         self.clientStatus = AppModel.ClientStatus.Disconnected
@@ -452,9 +449,12 @@ class AppModel( QObject ):
         self.clientStoppedChanged.emit()
 
         print( "Stopping datagram channel loop" )
-        self._datagram_channel_thread.loop.call_soon_threadsafe( self._datagram_channel_thread.loop.stop )
+        self.datagram_channel_loop.call_soon_threadsafe( self.datagram_channel_loop.stop )
 
     def handle_message( self, message ):
+        create_task( self.handle_message_async( message ) )
+
+    async def handle_message_async( self, message ):
         if isinstance( message, ACPT ):
             self.set_chat_members( message.members )
         elif isinstance( message, RJCT ):
@@ -469,7 +469,7 @@ class AppModel( QObject ):
         # thread as opposed to the main loop. Do so my scheduling a task on the datagram channel's
         # event loop.
         set_members_coro = self._datagram_channel.set_chat_members( members )
-        asyncio.run_coroutine_threadsafe( set_members_coro, self._datagram_channel_thread.loop )
+        asyncio.run_coroutine_threadsafe( set_members_coro, self.datagram_channel_loop )
 
 class ClientApp( QGuiApplication ):
     def __init__( self, arguments ):

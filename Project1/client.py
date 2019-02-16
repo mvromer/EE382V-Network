@@ -46,13 +46,21 @@ class ACPT:
         members = [ChatMember( *member_data.split( " " ) ) for member_data in data.split( ":" )]
         return cls( members )
 
+class RJCT:
+    def __init__( self, screen_name ):
+        self.screen_name = screen_name
+
+    @classmethod
+    def new( cls, data ):
+        return cls( screen_name=data )
+
 def parse_message( message ):
     message_type, _, message_data = message.partition( " " )
 
     if message_type == "ACPT":
         return ACPT.new( message_data )
-
-    return None
+    elif message_type == "RJCT":
+        return RJCT.new( message_data )
 
 class ServerConnection( asyncio.Protocol ):
     def __init__( self, app_model ):
@@ -100,10 +108,7 @@ class ServerConnection( asyncio.Protocol ):
         print( f"Data received: {data}" )
         for message in self._feed_data( data ):
             print( f"New message: {message}")
-            message = parse_message( message )
-
-            if isinstance( message, ACPT ):
-                self._app_model.set_chat_members( message.members )
+            self._app_model.handle_message( parse_message( message ) )
 
     def eof_received( self ):
         print( f"EOF received" )
@@ -448,6 +453,11 @@ class AppModel( QObject ):
 
         print( "Stopping datagram channel loop" )
         self._datagram_channel_thread.loop.call_soon_threadsafe( self._datagram_channel_thread.loop.stop )
+
+    def handle_message( self, message ):
+        if isinstance( message, ACPT ):
+            self.set_chat_members( message.members )
+
 
     def set_chat_members( self, members ):
         self._chat_members.clear()

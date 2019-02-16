@@ -276,11 +276,11 @@ class ChatMemberListModel( QAbstractListModel ):
 
     def clear( self ):
         if self.rowCount() > 0:
-            self.beginRemoveRows( QModelIndex(), 0, self.rowCount() - 1 )
+            #self.beginRemoveRows( QModelIndex(), 0, self.rowCount() - 1 )
             self.beginResetModel()
-            self._members = []
+            self._members.clear()
             self.endResetModel()
-            self.endRemoveRows()
+            #self.endRemoveRows()
             print( "Cleared" )
 
 class AppModel( QObject ):
@@ -454,13 +454,12 @@ class AppModel( QObject ):
         self.clientStatus = AppModel.ClientStatus.Connected
 
     @pyqtSlot()
-    def disconnect_client( self ):
-        create_task( self.disconnect_client_async() )
+    def disconnect_client( self, send_exit=True ):
+        create_task( self.disconnect_client_async( send_exit ) )
 
-    async def disconnect_client_async( self ):
-        # Tell the server we want to exit and await the acknowledgement only if the client is
-        # already connected to the server.
-        if self.clientStatus == AppModel.ClientStatus.Connected:
+    async def disconnect_client_async( self, send_exit=True ):
+        if send_exit:
+            # Tell the server we want to exit and await the acknowledgement.
             self._exit_acked = self.main_loop.create_future()
             self._server_connection.send_exit()
             print( "Awaiting exit acknowledgement" )
@@ -516,7 +515,10 @@ class AppModel( QObject ):
             self.set_chat_members( message.members )
         elif isinstance( message, RJCT ):
             self.echo_error( f"Cannot connect to server. Screen name {self._screen_name} in use." )
-            self.disconnect_client()
+            # NOTE: On a RJCT, we do NOT send EXIT because the server will NOT send an
+            # acknowledgement back. If we were to await an acknowledgement during our disconnection
+            # logic, our client would wait indefinitely.
+            self.disconnect_client( send_exit=False )
         elif isinstance( message, JOIN ):
             self.echo_info( f"{message.member.screen_name} has entered the chat." )
             self._chat_members.add_member( message.member )

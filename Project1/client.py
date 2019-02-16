@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import functools
 import selectors
+import socket
 import string
 import sys
 import threading
@@ -36,17 +37,38 @@ def validate_port( port ):
     if port <= 0:
         raise ValueError( f"Invalid server port number {port}." )
 
+class ACPT:
+    def __init__( self, members ):
+        self.members = members
+
+    @classmethod
+    def new( cls, data ):
+        members = [ChatMember( *member_data.split( " " ) ) for member_data in data.split( ":" )]
+        return cls( members )
+
+def parse_message( message ):
+    message_type, _, message_data = message.partition( " " )
+
+    if message_type == "ACPT":
+        return ACPT.new( message_data )
+
+    return None
+
 class ServerConnection( asyncio.Protocol ):
     def __init__( self, app_model ):
         self._app_model = weakref.proxy( app_model )
         self._transport = None
         self._transport_closed = None
+        self._message_chunks = []
 
     async def connect( self, screen_name, server_address, server_port, loop ):
         validate_screen_name( screen_name )
         validate_port( server_port )
         self._transport_closed = loop.create_future()
-        self._transport, _ = await loop.create_connection( lambda: self, server_address, server_port )
+        self._transport, _ = await loop.create_connection( lambda: self,
+            server_address,
+            server_port,
+            family=socket.AF_INET )
 
     def disconnect( self ):
         if self._transport:
@@ -60,9 +82,10 @@ class ServerConnection( asyncio.Protocol ):
         return self._transport.get_extra_info( "sockname" )
 
     def send_hello( self, screen_name, local_ip, local_port ):
-        if self._transport:
-            message = f"HELO {screen_name} {local_ip} {local_port}\n"
-            self._transport.write( message.encode() )
+        self._send_server_message( f"HELO {screen_name} {local_ip} {local_port}\n" )
+
+    def send_exit( self ):
+        self._send_server_message( "EXIT\n" )
 
     def connection_made( self, transport ):
         pass
@@ -75,15 +98,66 @@ class ServerConnection( asyncio.Protocol ):
 
     def data_received( self, data ):
         print( f"Data received: {data}" )
+        for message in self._feed_data( data ):
+            print( f"New message: {message}")
+            message = parse_message( message )
+
+            if isinstance( message, ACPT ):
+                self._app_model.set_chat_members( message.members )
 
     def eof_received( self ):
         print( f"EOF received" )
 
-class MessageChannel( asyncio.DatagramProtocol ):
+    def _send_server_message( self, message ):
+        if self._transport:
+            self._transport.write( message.encode() )
+
+    def _feed_data( self, data ):
+        # We keep feeding chunks until one contains at least one newline character. The presence of
+        # a newline indicates that at least one complete message has arrived. In this case, we want
+        # to find the last newline in the current chunk and preserve everything after it as the
+        # start of the next message that has yet to be completed.
+        #
+        # For everything before the last newline, this gets concatenated with the other message
+        # chunks previously stored. The concatenated string is then split across newline boundaries
+        # (since it may be the rare case there are mutliple messages buffered up), and each portion
+        # corresponds to a protocol message that needs parsing.
+        #
+        chunk = data.decode()
+        left_chunk, newline, right_chunk = chunk.rpartition( "\n" )
+
+        if newline:
+            # There was a newline in the latest chunk. The one we partitioned on is either at the
+            # beginning of our chunk (in which case left_chunk is empty), it's at the end of our
+            # chunk (in which case right_chunk is empty), or it's somewhere in the middle.
+
+            if left_chunk:
+                # There is content prior to the newline we partitioned on. The preceding content
+                # needs to be appened to the list of chunks that will be concatenated and parsed.
+                self._message_chunks.append( left_chunk )
+
+            # Concatenate all of our message chunks into one large string. Split the string on
+            # message boundaries (newlines) and yield each message found.
+            for message in "".join( self._message_chunks ).split( "\n" ):
+                yield message
+
+            # Discard the chunks we've exhausted in terms of messages that can be parsed.
+            self._message_chunks = []
+
+            if right_chunk:
+                # There is content following the newline we partitioned on. This content forms the
+                # first chunk save in the new set of message chunks.
+                self._message_chunks.append( right_chunk )
+        else:
+            # There was no newline in the current chunk. Add it to our list of message chunks.
+            self._message_chunks.append( chunk )
+
+class DatagramChannel( asyncio.DatagramProtocol ):
     def __init__( self, app_model ):
         self._app_model = weakref.proxy( app_model )
         self._transport = None
         self._transport_closed = None
+        self._chat_members = []
 
     async def open( self, local_host, closed_future, loop ):
         self._transport_closed = closed_future
@@ -91,20 +165,26 @@ class MessageChannel( asyncio.DatagramProtocol ):
 
     async def close( self ):
         if self._transport:
-            print( "Closing message channel" )
+            print( "Closing datagram channel" )
             self._transport.close()
             return self._transport_closed
 
     def get_local_address( self ):
         if not self._transport:
-            raise RuntimeError( "Cannot get local address used for message channel. Message channel not open." )
+            raise RuntimeError( "Cannot get local address used for datagram channel. datagram channel not open." )
         return self._transport.get_extra_info( "sockname" )
+
+    async def set_chat_members( self, members ):
+        self._chat_members = members
+
+    async def send_message( self, message ):
+        pass
 
     def connection_made( self, transport ):
         pass
 
     def connection_lost( self, ex ):
-        print( "Closed message channel" )
+        print( "Closed datagram channel" )
         future_loop = self._transport_closed.get_loop()
         future_loop.call_soon_threadsafe( self._transport_closed.set_result, None )
         self._transport = None
@@ -115,6 +195,9 @@ class MessageChannel( asyncio.DatagramProtocol ):
 
     def error_received( self, ex ):
         print( f"Error received: {ex}" )
+
+    def _send_datagram_message( self, message ):
+        pass
 
 class ChatMember:
     def __init__( self, screen_name, address, port ):
@@ -145,6 +228,11 @@ class ChatMemberListModel( QAbstractListModel ):
         self._members.append( member )
         self.endInsertRows()
 
+    def add_members( self, members ):
+        self.beginInsertRows( QModelIndex(), self.rowCount(), self.rowCount() + len( members ) - 1 )
+        self._members += members
+        self.endInsertRows()
+
     def clear( self ):
         if self.rowCount() > 0:
             self.beginRemoveRows( QModelIndex(), 0, self.rowCount() - 1 )
@@ -164,11 +252,11 @@ class AppModel( QObject ):
     clientStatusChanged = pyqtSignal( ClientStatus, arguments=["clientStatus"] )
     chatBufferChanged = pyqtSignal()
 
-    def __init__( self, main_loop, message_channel_thread, parent=None ):
+    def __init__( self, main_loop, datagram_channel_thread, parent=None ):
         super().__init__( parent )
         self._client_stopped = main_loop.create_future()
         self._main_loop = main_loop
-        self._message_channel_thread = message_channel_thread
+        self._datagram_channel_thread = datagram_channel_thread
         self._screenName = None
         self._serverAddress = None
         self._serverPort = None
@@ -176,7 +264,7 @@ class AppModel( QObject ):
         self._chatMembers = ChatMemberListModel()
         self._chatBuffer = ""
         self._server_connection = ServerConnection( self )
-        self._message_channel = MessageChannel( self )
+        self._datagram_channel = DatagramChannel( self )
 
     @pyqtProperty( bool, notify=clientStoppedChanged )
     def clientStopped( self ):
@@ -267,14 +355,14 @@ class AppModel( QObject ):
             await self._server_connection.connect( screen_name, server_address, server_port, self._main_loop )
 
             # Use catch-all to properly handle both IPv4 and IPv6 address tuples. Use the local host
-            # IP used for the server connection for our UDP message channel since we know it's at
+            # IP used for the server connection for our UDP datagram channel since we know it's at
             # least visible to the server.
             local_host, *_ = self._server_connection.get_local_address()
             print( f"Connected to server on local address {local_host}." )
 
             # Here be dragons: This is where things start to get gnarly (though it's still cleaner
-            # than it could've otherwise turned out). The message channel needs to be opened on the
-            # message channel loop, which lives on our message channel thread. So we use the
+            # than it could've otherwise turned out). The datagram channel needs to be opened on the
+            # datagram channel loop, which lives on our datagram channel thread. So we use the
             # asyncio.run_coroutine_threadsafe function to safely schedule our open method on the
             # correct event loop.
             #
@@ -283,24 +371,24 @@ class AppModel( QObject ):
             # asyncio.wrap_future to get an asyncio.Future object, which we can then await on our
             # main loop.
             #
-            # This way our main loop can asynchronously wait for the message channel loop to
-            # establish our message channel. Once the open call has completed, we can then safely
+            # This way our main loop can asynchronously wait for the datagram channel loop to
+            # establish our datagram channel. Once the open call has completed, we can then safely
             # get the port the OS gave us for that channel.
             #
             # All this because quamash's QEventLoop on Windows doesn't support creating UDP
             # endpoints. :sob:
             #
-            # NOTE: The future we await on to know when the message channel is fully closed MUST be
+            # NOTE: The future we await on to know when the datagram channel is fully closed MUST be
             # created on the same thread as the main loop. This is because asyncio.Future objects
             # are NOT thread safe.
             #
             closed_future = self._main_loop.create_future()
-            open_coro = self._message_channel.open( local_host, closed_future, self._message_channel_thread.loop )
-            loop = self._message_channel_thread.loop
+            open_coro = self._datagram_channel.open( local_host, closed_future, self._datagram_channel_thread.loop )
+            loop = self._datagram_channel_thread.loop
             await asyncio.wrap_future( asyncio.run_coroutine_threadsafe( open_coro, loop ) )
 
-            _, local_port, *_ = self._message_channel.get_local_address()
-            print( f"Message channel port: {local_port}" )
+            _, local_port, *_ = self._datagram_channel.get_local_address()
+            print( f"datagram channel port: {local_port}" )
 
             # Use the local port info to say hello to the server.
             self._server_connection.send_hello( screen_name, local_host, local_port )
@@ -323,8 +411,8 @@ class AppModel( QObject ):
         if disconnected:
             await disconnected
 
-        # Here be more dragons: We need to close our message channel on the message channel thread.
-        # We do  this by scheduling the channel's close coroutine onto the message channel loop.
+        # Here be more dragons: We need to close our datagram channel on the datagram channel thread.
+        # We do  this by scheduling the channel's close coroutine onto the datagram channel loop.
         # We have to use wrap_future to get a Future object that we can await on our main loop
         # (which is where this disconnect_client_async coroutine will run).
         #
@@ -333,8 +421,8 @@ class AppModel( QObject ):
         # the one we passed into the channel's open coroutine. The main loop uses this second future
         # as the one it awaits to ensure the channel is fully closed before continuing.
         #
-        close_coro = self._message_channel.close()
-        loop = self._message_channel_thread.loop
+        close_coro = self._datagram_channel.close()
+        loop = self._datagram_channel_thread.loop
         closed = await asyncio.wrap_future( asyncio.run_coroutine_threadsafe( close_coro, loop ) )
         if closed:
             print( f"Future: {closed}" )
@@ -358,8 +446,18 @@ class AppModel( QObject ):
         self._client_stopped.set_result( None )
         self.clientStoppedChanged.emit()
 
-        print( "Stopping message channel loop" )
-        self._message_channel_thread.loop.call_soon_threadsafe( self._message_channel_thread.loop.stop )
+        print( "Stopping datagram channel loop" )
+        self._datagram_channel_thread.loop.call_soon_threadsafe( self._datagram_channel_thread.loop.stop )
+
+    def set_chat_members( self, members ):
+        self._chatMembers.clear()
+        self._chatMembers.add_members( members )
+
+        # Update the channel members on the datagram channel, which runs on the datagram channel
+        # thread as opposed to the main loop. Do so my scheduling a task on the datagram channel's
+        # event loop.
+        set_members_coro = self._datagram_channel.set_chat_members( members )
+        asyncio.run_coroutine_threadsafe( set_members_coro, self._datagram_channel_thread.loop )
 
 class ClientApp( QGuiApplication ):
     def __init__( self, arguments ):
@@ -385,20 +483,20 @@ class ClientApp( QGuiApplication ):
         arguments = self.arguments()
         return parser.parse_args( arguments[1:] )
 
-class MessageChannelThread( threading.Thread ):
-    def __init__( self, message_channel_loop ):
+class DatagramChannelThread( threading.Thread ):
+    def __init__( self, datagram_channel_loop ):
         super().__init__()
-        self._message_channel_loop = message_channel_loop
+        self._datagram_channel_loop = datagram_channel_loop
 
     @property
     def loop( self ):
-        return self._message_channel_loop
+        return self._datagram_channel_loop
 
     def run( self ):
-        asyncio.set_event_loop( self._message_channel_loop )
-        print( f"Starting message channel loop in thread: {asyncio.get_event_loop()}" )
-        self._message_channel_loop.run_forever()
-        print( "Leaving message channel thread" )
+        asyncio.set_event_loop( self._datagram_channel_loop )
+        print( f"Starting datagram channel loop in thread: {asyncio.get_event_loop()}" )
+        self._datagram_channel_loop.run_forever()
+        print( "Leaving datagram channel thread" )
 
 def main( argv ):
     # Setup the main event loop that will drive the chat client.
@@ -417,11 +515,11 @@ def main( argv ):
     # communicate between the two event loops by submitting coroutines as tasks to the appropriate
     # event loop. It sucks and is ugly but better than rearchitecting late in the game.
     #
-    message_channel_loop = asyncio.SelectorEventLoop( selectors.SelectSelector() )
-    message_channel_thread = MessageChannelThread( message_channel_loop )
+    datagram_channel_loop = asyncio.SelectorEventLoop( selectors.SelectSelector() )
+    datagram_channel_thread = DatagramChannelThread( datagram_channel_loop )
 
     # Create the top-level app model state for the chat client.
-    app_model = AppModel( main_loop, message_channel_thread )
+    app_model = AppModel( main_loop, datagram_channel_thread )
 
     cli = app.parse_command_line()
     app_model.screenName = cli.screen_name
@@ -435,9 +533,9 @@ def main( argv ):
     engine.load( "client.qml" )
 
     with main_loop:
-        message_channel_thread.start()
+        datagram_channel_thread.start()
         main_loop.run_until_complete( app_model._client_stopped )
-        message_channel_thread.join()
+        datagram_channel_thread.join()
         print( "Leaving app" )
 
 if __name__ == "__main__":

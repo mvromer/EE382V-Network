@@ -16,7 +16,6 @@ class ChatMemberListModel( QAbstractListModel ):
         return len( self._members )
 
     def data( self, index, role=Qt.DisplayRole ):
-        print( f"Get data for {index.row()} and {role}" )
         if not index.isValid():
             return QVariant()
 

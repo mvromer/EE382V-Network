@@ -33,7 +33,6 @@ class ChatMemberListModel( QAbstractListModel ):
         self.endInsertRows()
 
     def add_members( self, members ):
-        print( self.rowCount() )
         self.beginInsertRows( QModelIndex(), self.rowCount(), self.rowCount() + len( members ) - 1 )
         self._members += members
         self.endInsertRows()
@@ -53,12 +52,9 @@ class ChatMemberListModel( QAbstractListModel ):
 
     def clear( self ):
         if self.rowCount() > 0:
-            #self.beginRemoveRows( QModelIndex(), 0, self.rowCount() - 1 )
             self.beginResetModel()
             self._members.clear()
             self.endResetModel()
-            #self.endRemoveRows()
-            print( "Cleared" )
 
 class AppModel( QObject ):
     class ClientStatus:

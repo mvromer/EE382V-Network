@@ -48,9 +48,9 @@ class DatagramChannelThread( threading.Thread ):
 
     def run( self ):
         asyncio.set_event_loop( self._datagram_channel_loop )
-        print( f"Starting datagram channel loop in thread: {asyncio.get_event_loop()}" )
+        print( f"Starting datagram channel loop in thread." )
         self._datagram_channel_loop.run_forever()
-        print( "Leaving datagram channel thread" )
+        print( "Leaving datagram channel thread." )
 
 def main( argv ):
     # Setup the main event loop that will drive the chat client.

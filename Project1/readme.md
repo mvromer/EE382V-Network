@@ -2,6 +2,10 @@
 This client implementation requires Python 3.7 to run. Please ensure you have Python 3.7 installed
 and that it is the version of Python that is first available on your path.
 
+## Repository
+This project is also hosted on GitHub at the following location:
+https://github.com/mvromer/EE382V-Network
+
 ## Prerequisites
 The client itself basically requires the following:
 

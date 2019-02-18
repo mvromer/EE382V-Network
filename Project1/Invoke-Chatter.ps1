@@ -53,7 +53,7 @@ if( -not $pipenv ) {
 
 Push-Location $PSScriptRoot
 try {
-    pipenv install
+    pipenv install --skip-lock
     pipenv run python client.py $ScreenName $ServerAddress $ServerPort
 }
 finally {

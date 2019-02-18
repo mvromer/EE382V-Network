@@ -54,6 +54,27 @@ if( -not $pipenv ) {
 Push-Location $PSScriptRoot
 try {
     pipenv install --skip-lock
+
+    # Get the Python executable in the virtual environment so that we can open up UPD access to it.
+    $virtualEnvPath = pipenv --venv
+    $virtualEnvName = Split-Path -Path $virtualEnvPath -Leaf
+    $virtualEnvPython = Get-Item -Path "$virtualEnvPath\Scripts\python.exe" -ErrorAction Ignore
+    if( -not $virtualEnvPython ) {
+        throw ("Python not found in the named virtual environment under $virtualEnvPython. " +
+            "Make sure the virtual environment was created properly.")
+    }
+
+    # Open up inbound UDP access to the virtual environment's Python interpreter so that the client
+    # runs properly.
+    $ruleName = "Chatter Client - $virtualEnvName"
+    $rule = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction Ignore
+    if( -not $rule ) {
+        Write-Host -ForegroundColor Yellow "Creating new firewall rule to allow UDP traffic to virtual environment's Python."
+        Write-Host -ForegroundColor Yellow "New rule will have the display name '$ruleName'"
+
+        Start-Process powershell.exe -Verb RunAs -ArgumentList "-Command & { New-NetFirewallRule -DisplayName '$ruleName' -Direction Inbound -Program '$virtualEnvPython' -Action Allow -Protocol UDP }"
+    }
+
     pipenv run python client.py $ScreenName $ServerAddress $ServerPort
 }
 finally {

@@ -42,16 +42,15 @@ class MemberConnection( asyncio.Protocol ):
         self._server = weakref.proxy( server )
         self._transport = None
         self._message_chunks = []
-        self._conn_id = None
 
     def connection_made( self, transport ):
-        self._conn_id = transport.get_extra_info( "sockname" )
-        print( f"Connection made: {self._conn_id}" )
-        self._server.register_connection( self._conn_id )
+        print( f"Connection made: {transport.get_extra_info( 'sockname' )}" )
+        self._server.register_connection( self )
+        self._transport = transport
 
     def connection_lost( self, ex ):
         print( "Connection lost" )
-        self._server.unregister_connection( self._conn_id )
+        self._server.unregister_connection( self )
 
     def data_received( self, data ):
         print( "Data received" )
@@ -59,7 +58,7 @@ class MemberConnection( asyncio.Protocol ):
             print( f"New message: {message}")
             message = parse_message( message )
             if message:
-                self._server.create_task( self._server.handle_message( message, self._conn_id ) )
+                self._server.handle_message( message, self )
 
     def _feed_data( self, data ):
         # We keep feeding chunks until one contains at least one newline character. The presence of
@@ -133,25 +132,28 @@ class Server:
         await self._server.wait_closed()
         print( "Server closed" )
 
-    def create_task( self, coro ):
-        self._server.get_event_loop().create_task( coro )
-
-    def register_connection( self, conn_id ):
-        if conn_id in self._connections:
-            warnings.warn( f"Connection already registered: {conn_id}" )
+    def register_connection( self, conn ):
+        if conn in self._connections:
+            warnings.warn( f"Connection already registered: {conn}" )
             return
 
-        self._connections[conn_id] = Member()
+        self._connections[conn] = Member()
 
-    def unregister_connection( self, conn_id ):
-        if conn_id in self._connections:
-            del self._connections[conn_id]
+    def unregister_connection( self, conn ):
+        if conn in self._connections:
+            del self._connections[conn]
 
-    async def handle_message( self, message, conn_id ):
-        if isinstance( message, HELO ):
-            pass
-        elif isinstance( message, EXIT ):
-            pass
+    def handle_message( self, message, conn ):
+        async def handle_message( message, conn ):
+            if isinstance( message, HELO ):
+                pass
+            elif isinstance( message, EXIT ):
+                pass
+
+        self._create_task( handle_message( message, conn ) )
+
+    def _create_task( self, coro ):
+        self._server.get_event_loop().create_task( coro )
 
     async def _wakeup( self ):
         while True:

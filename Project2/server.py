@@ -3,15 +3,16 @@ import asyncio
 import platform
 import selectors
 import signal
+import socket
 import sys
 import warnings
 import weakref
 
 class HELO:
-    def __init__( self, screen_name, client_ip, client_port ):
+    def __init__( self, screen_name, ip_address, port ):
         self.screen_name = screen_name
-        self.client_ip = client_ip
-        self.client_port = client_port
+        self.ip_address = ip_address
+        self.port = int(port)
 
     @classmethod
     def new( cls, data ):
@@ -35,27 +36,51 @@ def parse_message( message ):
         pass
 
 class Member:
-    pass
+    def __init__( self, screen_name, ip_address, port ):
+        self.screen_name = screen_name
+        self.ip_address = ip_address
+        self.port = port
 
 class MemberConnection( asyncio.Protocol ):
     def __init__( self, server ):
         self._server = weakref.proxy( server )
         self._transport = None
+        self._transport_closed = None
         self._message_chunks = []
 
+    @property
+    def address( self ):
+        return self._transport.get_extra_info( "sockname" ) if self._transport else None
+
+    def disconnect( self ):
+        if self._transport:
+            self._transport.close()
+            return self._transport_closed
+
+    def send_accept( self, members ):
+        if self._transport:
+            message = f"ACPT {':'.join( f'{member.screen_name} {member.ip_address} {member.port}' for member in members)}\n"
+            self._transport.write( message.encode() )
+
+    def send_reject( self, screen_name ):
+        if self._transport:
+            message = f"RJCT {screen_name}\n"
+            self._transport.write( message.encode() )
+
     def connection_made( self, transport ):
-        print( f"Connection made: {transport.get_extra_info( 'sockname' )}" )
-        self._server.register_connection( self )
         self._transport = transport
+        self._transport_closed = asyncio.get_event_loop().create_future()
+        self._server.register_connection( self )
 
     def connection_lost( self, ex ):
-        print( "Connection lost" )
         self._server.unregister_connection( self )
+        self._transport_closed.set_result( None )
+        self._transport = None
+        self._transport_closed = None
 
     def data_received( self, data ):
-        print( "Data received" )
         for message in self._feed_data( data ):
-            print( f"New message: {message}")
+            print( f"New message: {message}" )
             message = parse_message( message )
             if message:
                 self._server.handle_message( message, self )
@@ -100,14 +125,56 @@ class MemberConnection( asyncio.Protocol ):
             # There was no newline in the current chunk. Add it to our list of message chunks.
             self._message_chunks.append( chunk )
 
+class DatagramChannel( asyncio.DatagramProtocol ):
+    def __init__( self ):
+        self._transport = None
+        self._transport_closed = None
+
+    async def open( self ):
+        loop = asyncio.get_running_loop()
+        self._transport_closed = loop.create_future()
+        self._transport, _ = await loop.create_datagram_endpoint( lambda: self, local_addr=("0.0.0.0", None) )
+
+    async def close( self ):
+        if self._transport:
+            self._transport.close()
+            return self._transport_closed
+
+    def send_join( self, new_member, members ):
+        message = f"JOIN {new_member.screen_name} {new_member.ip_address} {new_member.port}\n"
+        data = message.encode()
+        for member in members:
+            self._send_datagram( data, member )
+
+    def send_exit( self, departing_member, members ):
+        message = f"EXIT {departing_member.screen_name}\n"
+        data = message.encode()
+        for member in members:
+            self._send_datagram( data, member )
+
+    def connection_lost( self, ex ):
+        self._transport_closed.set_result( None )
+        self._transport = None
+        self._transport_closed = None
+
+    def _send_datagram( self, data, member ):
+        if self._transport:
+            self._transport.sendto( data, (member.ip_address, member.port) )
+
 class Server:
     def __init__( self, port ):
         self._port = port
         self._server = None
         self._connections = {}
+        self._datagram_channel = None
         self._members = []
 
     async def run( self ):
+        # Setup the datagram channel for sending JOIN and EXIT messages to clients.
+        self._datagram_channel = DatagramChannel()
+        await self._datagram_channel.open()
+
+        # Setup the listening socket for new clients.
         loop = asyncio.get_running_loop()
         self._server = await loop.create_server( lambda: MemberConnection( self ), port=self._port )
 
@@ -123,37 +190,62 @@ class Server:
             loop.create_task( self._wakeup() )
 
         async with self._server:
-            print( "Starting server" )
             await self._server.serve_forever()
 
     async def shutdown( self ):
-        print( "Shutting down server" )
+        if self._connections:
+            await asyncio.gather( *[conn.disconnect() for conn in self._connections] )
+
         self._server.close()
         await self._server.wait_closed()
-        print( "Server closed" )
+        await self._datagram_channel.close()
 
     def register_connection( self, conn ):
         if conn in self._connections:
-            warnings.warn( f"Connection already registered: {conn}" )
+            warnings.warn( f"Connection already registered: {conn.address}" )
             return
-
-        self._connections[conn] = Member()
+        self._connections[conn] = None
 
     def unregister_connection( self, conn ):
         if conn in self._connections:
+            member = self._connections[conn]
+            if member:
+                self._members.remove( member )
             del self._connections[conn]
 
     def handle_message( self, message, conn ):
-        async def handle_message( message, conn ):
+        async def handle_message():
             if isinstance( message, HELO ):
-                pass
-            elif isinstance( message, EXIT ):
-                pass
+                # Ignore this if this connection has already registered itself as a member.
+                if self._connections.get( conn, None ):
+                    warnings.warn( f"Connection {conn.address} already registered as member. Ignoring HELO." )
+                    return
 
-        self._create_task( handle_message( message, conn ) )
+                for member in self._members:
+                    if member.screen_name == message.screen_name:
+                        conn.send_reject( message.screen_name )
+                        await conn.disconnect()
+                        break
+                else:
+                    member = Member( message.screen_name, message.ip_address, message.port )
+                    self._connections[conn] = member
+                    self._members.append( member )
+
+                    conn.send_accept( self._members )
+                    self._datagram_channel.send_join( member, self._members )
+            elif isinstance( message, EXIT ):
+                # Ignore this if this connection has never registered itself previously.
+                if not self._connections.get( conn, None ):
+                    warnings.warn( f"Connection {conn.address} never registered as member. Ignoring EXIT." )
+                    return
+
+                departing_member = self._connections[conn]
+                self._datagram_channel.send_exit( departing_member, self._members )
+
+        self._create_task( handle_message() )
 
     def _create_task( self, coro ):
-        self._server.get_event_loop().create_task( coro )
+        self._server.get_loop().create_task( coro )
 
     async def _wakeup( self ):
         while True:
@@ -180,7 +272,6 @@ def main( argv ):
     try:
         loop.run_until_complete( server.run() )
     except KeyboardInterrupt:
-        print( "Caught KI" )
         loop.run_until_complete( server.shutdown() )
 
 if __name__ == "__main__":

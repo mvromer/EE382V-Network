@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import logging
 import platform
 import selectors
 import signal
@@ -52,27 +53,36 @@ class MemberConnection( asyncio.Protocol ):
     def address( self ):
         return self._transport.get_extra_info( "sockname" ) if self._transport else None
 
+    @property
+    def peer( self ):
+        return self._transport.get_extra_info( "peername" ) if self._transport else None
+
     def disconnect( self ):
         if self._transport:
+            logging.info( f"Closing connection to peer {self.peer}." )
             self._transport.close()
             return self._transport_closed
 
     def send_accept( self, members ):
         if self._transport:
             message = f"ACPT {':'.join( f'{member.screen_name} {member.ip_address} {member.port}' for member in members)}\n"
+            logging.info( f"Sending ACPT message to peer {self.peer}: {message.rstrip()}" )
             self._transport.write( message.encode() )
 
     def send_reject( self, screen_name ):
         if self._transport:
             message = f"RJCT {screen_name}\n"
+            logging.info( f"Sending RJCT message to peer {self.peer}: {message.rstrip()}" )
             self._transport.write( message.encode() )
 
     def connection_made( self, transport ):
         self._transport = transport
         self._transport_closed = asyncio.get_event_loop().create_future()
+        logging.info( f"Connection established with peer {self.peer}." )
         self._server.register_connection( self )
 
     def connection_lost( self, ex ):
+        logging.info( f"Connection closed to peer {self.peer}." )
         self._server.unregister_connection( self )
         self._transport_closed.set_result( None )
         self._transport = None
@@ -80,7 +90,7 @@ class MemberConnection( asyncio.Protocol ):
 
     def data_received( self, data ):
         for message in self._feed_data( data ):
-            print( f"New message: {message}" )
+            logging.info( f"Received new message: {message}" )
             message = parse_message( message )
             if message:
                 self._server.handle_message( message, self )
@@ -131,12 +141,15 @@ class DatagramChannel( asyncio.DatagramProtocol ):
         self._transport_closed = None
 
     async def open( self ):
+        logging.info( "Opening datagram channel." )
         loop = asyncio.get_running_loop()
         self._transport_closed = loop.create_future()
         self._transport, _ = await loop.create_datagram_endpoint( lambda: self, local_addr=("0.0.0.0", None) )
+        logging.info( "Datagram channel opened." )
 
     async def close( self ):
         if self._transport:
+            logging.info( "Closing datagram channel." )
             self._transport.close()
             return self._transport_closed
 
@@ -144,15 +157,18 @@ class DatagramChannel( asyncio.DatagramProtocol ):
         message = f"JOIN {new_member.screen_name} {new_member.ip_address} {new_member.port}\n"
         data = message.encode()
         for member in members:
+            logging.info( f"Sending JOIN message to peer ({member.ip_address}, {member.port}): {message.rstrip()}" )
             self._send_datagram( data, member )
 
     def send_exit( self, departing_member, members ):
         message = f"EXIT {departing_member.screen_name}\n"
         data = message.encode()
         for member in members:
+            logging.info( f"Sending EXIT message to peer ({member.ip_address}, {member.port}): {message.rstrip()}" )
             self._send_datagram( data, member )
 
     def connection_lost( self, ex ):
+        logging.info( "Datagram channel closed." )
         self._transport_closed.set_result( None )
         self._transport = None
         self._transport_closed = None
@@ -170,6 +186,8 @@ class Server:
         self._members = []
 
     async def run( self ):
+        logging.info( "Initializing server." )
+
         # Setup the datagram channel for sending JOIN and EXIT messages to clients.
         self._datagram_channel = DatagramChannel()
         await self._datagram_channel.open()
@@ -187,18 +205,22 @@ class Server:
         # Learned about this workaround from here: https://stackoverflow.com/a/36925722/562685
         #
         if platform.system() == "Windows":
+            logging.info( "Creating Windows wakeup task." )
             loop.create_task( self._wakeup() )
 
         async with self._server:
+            logging.info( "Server initialized. Starting main loop." )
             await self._server.serve_forever()
 
     async def shutdown( self ):
+        logging.info( "Stopping server." )
         if self._connections:
             await asyncio.gather( *[conn.disconnect() for conn in self._connections] )
 
         self._server.close()
         await self._server.wait_closed()
         await self._datagram_channel.close()
+        logging.info( "Server stopped.")
 
     def register_connection( self, conn ):
         if conn in self._connections:
@@ -260,6 +282,10 @@ def parse_command_line( argv ):
     return parser.parse_args( argv[1:] )
 
 def main( argv ):
+    # Setup the module-wide logging.
+    logging.basicConfig( level=logging.INFO,
+        format="[%(asctime)s] [%(levelname)s] [%(funcName)s (%(filename)s)] - %(message)s" )
+
     # Make sure we pick the Select based event loop since that's the only one on Windows that
     # support UDP transports.
     selector = selectors.SelectSelector()

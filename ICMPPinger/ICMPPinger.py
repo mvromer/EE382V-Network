@@ -241,6 +241,7 @@ def ping(host, timeout=1):
 				"    Minimum = %.3fms, Maximum = %.3fms, Average = %.3fms\n") %
 				(min_rtt, max_rtt, avg_rtt) )
 	
-ping("127.0.0.1")
-ping("google.com")
-ping("europa.eu")
+ping("whitehouse.gov")
+ping("amazon.de")
+ping("tokyotokyo.jp")
+ping("gov.za")

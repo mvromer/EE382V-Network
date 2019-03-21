@@ -147,30 +147,16 @@ def receiveOnePing(mySocket, ID, timeout, destAddr):
 	       
 	       #Fill in start
         
-        	#Fetch the ICMP header from the IP packet
+        #Fetch the ICMP header from the IP packet
 		ip_header = IPHeader.from_datagram( recPacket )
-		print( "Header length: %s" % ip_header.length )
-		print( "Packet size: %s" % ip_header.packet_size )
-		print( "Version: %s" % ip_header.version )
-
 		icmp_message_length = ip_header.packet_size - ip_header.length
 		icmp_message = ICMPMessage.from_bytes( recPacket[ip_header.length:(ip_header.length + icmp_message_length)] )
 
 		if isinstance( icmp_message, EchoResponse ):
-			print( "Expected identifier: %s" % ID )
-			print( "ICMP checksum: %x" % icmp_message.checksum )
-			print( "ICMP identifier: %s" % icmp_message.identifier )
-			print( "ICMP sequence number: %s" % icmp_message.sequence_number )
-
-		# base_icmp_header_format = "!bbH"
-		# base_icmp_header_size = struct.calcsize( base_icmp_header_format )
-		# (icmp_type, icmp_code, icmp_checksum) = struct.unpack_from( base_icmp_header_format,
-		# 	recPacket[internet_header_length:(internet_header_length + base_icmp_header_size)] )
-
-		# print( f"Type: {icmp_type}  Code: {icmp_code}   Checksum: {icmp_checksum}" )
-
-		# print( f"Byte 0: {version_ihl}" )
-		# print( f"IHL: {internet_header_length}" )
+			# Only accept this response its fields match what we expect.
+			if icmp_message.identifier == ID:
+				(timeSent,) = struct.unpack( "d", icmp_message.payload )
+				return timeReceived - timeSent
         
        	#Fill in end
 		timeLeft = timeLeft - howLongInSelect
@@ -229,4 +215,4 @@ def ping(host, timeout=1):
 		time.sleep(1)# one second
 	return delay
 	
-ping("127.0.0.1")
+ping("google.com")

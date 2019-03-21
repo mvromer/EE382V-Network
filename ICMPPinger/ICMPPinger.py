@@ -105,6 +105,9 @@ class EchoResponse( ICMPMessage ):
 		self.identifier = identifier
 		self.sequence_number = sequence_number
 
+PingResult = collections.namedtuple( "PingResult", ["rtt_ms", "message"] )
+TimeoutResult = collections.namedtuple( "TimeoutResult", ["message"] )
+
 def safe_bytes( buffer ):
 	return str( buffer ) if is_py2 else buffer
 
@@ -140,7 +143,7 @@ def receiveOnePing(mySocket, ID, timeout, destAddr):
 		whatReady = select.select([mySocket], [], [], timeLeft)
 		howLongInSelect = (time.time() - startedSelect)
 		if whatReady[0] == []: # Timeout
-			return "Request timed out."
+			return TimeoutResult( "Request timed out." )
 	
 		timeReceived = time.time() 
 		recPacket, addr = mySocket.recvfrom(1024)
@@ -156,12 +159,15 @@ def receiveOnePing(mySocket, ID, timeout, destAddr):
 			# Only accept this response if its fields match what we expect.
 			if icmp_message.identifier == ID:
 				(timeSent,) = struct.unpack( "d", icmp_message.payload )
-				return timeReceived - timeSent
+				round_trip_time = (timeReceived - timeSent) * 1000
+				result_message = ("Reply from %s: bytes=%d time=%.3fms TTL=%d" %
+					(destAddr, ip_header.packet_size, round_trip_time, ip_header.time_to_live))
+				return PingResult( round_trip_time, result_message )
         
        	#Fill in end
 		timeLeft = timeLeft - howLongInSelect
 		if timeLeft <= 0:
-			return "Request timed out."
+			return TimeoutResult( "Request timed out." )
 	
 def sendOnePing(mySocket, destAddr, ID):
 	# Header is type (8), code (8), checksum (16), id (16), sequence (16)
@@ -197,10 +203,10 @@ def doOnePing(destAddr, timeout):
 	
 	myID = os.getpid() & 0xFFFF  # Return the current process i
 	sendOnePing(mySocket, destAddr, myID)
-	delay = receiveOnePing(mySocket, myID, timeout, destAddr)
+	result = receiveOnePing(mySocket, myID, timeout, destAddr)
 	
 	mySocket.close()
-	return delay
+	return result
 	
 def ping(host, timeout=1):
 	# timeout=1 means: If one second goes by without a reply from the server,
@@ -209,10 +215,32 @@ def ping(host, timeout=1):
 	print("Pinging " + dest + " using Python:")
 	print("")
 	# Send ping requests to a server separated by approximately one second
-	while 1 :
-		delay = doOnePing(dest, timeout)
-		print(delay)
-		time.sleep(1)# one second
-	return delay
+	results = []
+	try:
+		while 1 :
+			result = doOnePing(dest, timeout)
+			results.append( result )
+			print( result.message )
+			time.sleep(1)# one second
+	except KeyboardInterrupt:
+		ping_results = [result for result in results if isinstance( result, PingResult )]
+		number_timeouts = sum( 1 for _ in results if isinstance( result, TimeoutResult ) )
+		packet_loss = number_timeouts / len(results)
+
+		print( ("\n" +
+			"Ping statistics for %s:\n" +
+			"    Packets: Sent = %d, Received = %d, Lost = %d (%g%% loss),") %
+			(dest, len(results), len(ping_results), number_timeouts, packet_loss * 100) )
+
+		if ping_results:
+			min_rtt = min( result.rtt_ms for result in ping_results )
+			max_rtt = max( result.rtt_ms for result in ping_results )
+			avg_rtt = sum( result.rtt_ms for result in ping_results ) / len(ping_results)
+
+			print( ("Approximate round trip times in milli-seconds:\n" +
+				"    Minimum = %.3fms, Maximum = %.3fms, Average = %.3fms\n") %
+				(min_rtt, max_rtt, avg_rtt) )
 	
+ping("127.0.0.1")
 ping("google.com")
+ping("europa.eu")

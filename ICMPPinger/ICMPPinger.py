@@ -91,6 +91,8 @@ class ICMPMessage( object ):
 				identifier = ntohs( (header_data & 0xffff0000) >> 16 )
 				sequence_number = ntohs( header_data & 0xffff )
 				return EchoResponse( message_type, code, checksum, identifier, sequence_number, payload )
+		elif message_type == 3:
+			return DestinationUnreachableResponse( message_type, code, checksum, payload )
 
 	def __init__( self, message_type, code, checksum, payload ):
 		super().__init__()
@@ -105,8 +107,33 @@ class EchoResponse( ICMPMessage ):
 		self.identifier = identifier
 		self.sequence_number = sequence_number
 
+class DestinationUnreachableResponse( ICMPMessage ):
+	# NOTE: These are keyed by the corresponding code field value in the ICMP header.
+	_error_reason = {
+		0: "Destination network unreachable",
+		1: "Destination host unreachable",
+		2: "Destination protocol unreachable",
+		3: "Destination port unreachable",
+		4: "Fragmentation required",
+		5: "Source route failed",
+		6: "Destination network unknown",
+		7: "Destination host unknown",
+		8: "Source host isolated",
+		9: "Network administratively prohibited",
+		10: "Host administratively prohibited",
+		11: "Network unreachable for ToS",
+		12: "Host unreachable for ToS",
+		13: "Communication administratively prohibited",
+		14: "Host Precedence Violation",
+		15: "Precedence cutoff in effect"
+	}
+
+	def __init__( self, message_type, code, checksum, payload ):
+		super().__init__( message_type, code, checksum, payload )
+		self.reason = DestinationUnreachableResponse._error_reason.get( code, "Unknown error" )
+
 PingResult = collections.namedtuple( "PingResult", ["rtt_ms", "message"] )
-TimeoutResult = collections.namedtuple( "TimeoutResult", ["message"] )
+LossResult = collections.namedtuple( "LossResult", ["message"] )
 
 def safe_bytes( buffer ):
 	return str( buffer ) if is_py2 else buffer
@@ -143,13 +170,13 @@ def receiveOnePing(mySocket, ID, timeout, destAddr):
 		whatReady = select.select([mySocket], [], [], timeLeft)
 		howLongInSelect = (time.time() - startedSelect)
 		if whatReady[0] == []: # Timeout
-			return TimeoutResult( "Request timed out." )
+			return LossResult( "Request timed out." )
 	
 		timeReceived = time.time() 
 		recPacket, addr = mySocket.recvfrom(1024)
 	       
 	       #Fill in start
-        
+
         #Fetch the ICMP header from the IP packet
 		ip_header = IPHeader.from_datagram( recPacket )
 		icmp_message_length = ip_header.packet_size - ip_header.length
@@ -163,11 +190,13 @@ def receiveOnePing(mySocket, ID, timeout, destAddr):
 				result_message = ("Reply from %s: bytes=%d time=%.3fms TTL=%d" %
 					(destAddr, ip_header.packet_size, round_trip_time, ip_header.time_to_live))
 				return PingResult( round_trip_time, result_message )
+		elif isinstance( icmp_message, DestinationUnreachableResponse ):
+			return LossResult( icmp_message.reason )
         
        	#Fill in end
 		timeLeft = timeLeft - howLongInSelect
 		if timeLeft <= 0:
-			return TimeoutResult( "Request timed out." )
+			return LossResult( "Request timed out." )
 	
 def sendOnePing(mySocket, destAddr, ID):
 	# Header is type (8), code (8), checksum (16), id (16), sequence (16)
@@ -224,20 +253,20 @@ def ping(host, timeout=1):
 			time.sleep(1)# one second
 	except KeyboardInterrupt:
 		ping_results = [result for result in results if isinstance( result, PingResult )]
-		number_timeouts = sum( 1 for _ in results if isinstance( result, TimeoutResult ) )
-		packet_loss = number_timeouts / len(results)
+		losses = [result for result in results if isinstance( result, LossResult )]
+		packet_loss = len(losses) / len(results)
 
 		print( ("\n" +
 			"Ping statistics for %s:\n" +
 			"    Packets: Sent = %d, Received = %d, Lost = %d (%g%% loss),") %
-			(dest, len(results), len(ping_results), number_timeouts, packet_loss * 100) )
+			(dest, len(results), len(ping_results), len(losses), packet_loss * 100) )
 
 		if ping_results:
 			min_rtt = min( result.rtt_ms for result in ping_results )
 			max_rtt = max( result.rtt_ms for result in ping_results )
 			avg_rtt = sum( result.rtt_ms for result in ping_results ) / len(ping_results)
 
-			print( ("Approximate round trip times in milli-seconds:\n" +
+			print( ("Approximate round trip times in milliseconds:\n" +
 				"    Minimum = %.3fms, Maximum = %.3fms, Average = %.3fms\n") %
 				(min_rtt, max_rtt, avg_rtt) )
 	

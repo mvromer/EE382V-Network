@@ -95,7 +95,7 @@ class ICMPMessage( object ):
 			return DestinationUnreachableResponse( message_type, code, checksum, payload )
 
 	def __init__( self, message_type, code, checksum, payload ):
-		super().__init__()
+		super( ICMPMessage, self ).__init__()
 		self.message_type = message_type
 		self.code = code
 		self.checksum = checksum
@@ -103,7 +103,7 @@ class ICMPMessage( object ):
 
 class EchoResponse( ICMPMessage ):
 	def __init__( self, message_type, code, checksum, identifier, sequence_number, payload ):
-		super().__init__( message_type, code, checksum, payload )
+		super( EchoResponse, self ).__init__( message_type, code, checksum, payload )
 		self.identifier = identifier
 		self.sequence_number = sequence_number
 
@@ -129,7 +129,7 @@ class DestinationUnreachableResponse( ICMPMessage ):
 	}
 
 	def __init__( self, message_type, code, checksum, payload ):
-		super().__init__( message_type, code, checksum, payload )
+		super( DestinationUnreachableResponse, self ).__init__( message_type, code, checksum, payload )
 		self.reason = DestinationUnreachableResponse._error_reason.get( code, "Unknown error" )
 
 PingResult = collections.namedtuple( "PingResult", ["rtt_ms", "message"] )

@@ -41,7 +41,7 @@ class DumbbellTopo( Topo ):
         # NOTE: We cannot modify the interfaces here because they're technically not created yet.
         # We're only constructing a graph representation of our network topology. Mininet creates
         # the objects in the graph after this method returns. We need to do our interface updates
-        # after the Mininet constructor runs inside main() but before we call the start() method.
+        # after the Mininet constructor runs inside main().
         #
         self.addLink( s1, ar1, bw=960 )
         self.addLink( s2, ar1, bw=960 )

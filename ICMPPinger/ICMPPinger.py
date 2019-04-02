@@ -79,20 +79,30 @@ class ICMPMessage( object ):
 		header_size = struct.calcsize( header_format )
 		(message_type,
 		code,
-		checksum,
+		actual_checksum,
 		header_data) = struct.unpack( header_format, buffer[:header_size] )
 		payload = buffer[header_size:]
 
+		# Compute the expected checksum. To do that, we need to zero out the checksum field in the
+		# message buffer, which is a two-byte field starting at the third byte.
+		mutable_buffer = bytearray( buffer )
+		mutable_buffer[2] = 0
+		mutable_buffer[3] = 0
+		expected_checksum = checksum( safe_bytes( mutable_buffer ) )
+
+		if actual_checksum != expected_checksum:
+			return None
+
 		# Swizzle some bytes.
-		checksum = ntohs( checksum )
+		actual_checksum = ntohs( actual_checksum )
 
 		if message_type == 0:
 			if code == 0:
 				identifier = ntohs( (header_data & 0xffff0000) >> 16 )
 				sequence_number = ntohs( header_data & 0xffff )
-				return EchoResponse( message_type, code, checksum, identifier, sequence_number, payload )
+				return EchoResponse( message_type, code, actual_checksum, identifier, sequence_number, payload )
 		elif message_type == 3:
-			return DestinationUnreachableResponse( message_type, code, checksum, payload )
+			return DestinationUnreachableResponse( message_type, code, actual_checksum, payload )
 
 	def __init__( self, message_type, code, checksum, payload ):
 		super( ICMPMessage, self ).__init__()

@@ -1,4 +1,5 @@
 from itertools import izip
+import time
 
 from mininet.topo import Topo
 from mininet.net import Mininet
@@ -24,8 +25,12 @@ class DumbbellTopo( Topo ):
 
         # Set up link between backbone routers with given one-way propagation delay.
         # According to the NIST study, each backbone router can transmit up to 984 Mbps.
+        # According to the professor's post on Piazza, we'll also want to set the max queue size to
+        # 100% of the bandwidth delay product.
+        bb_bw = 984
         delay_str = "%dms" % delay_ms
-        self.addLink( bb1, bb2, bw=984, delay=delay_str )
+        queue_size = delay_ms * bb_bw
+        self.addLink( bb1, bb2, bw=bb_bw, delay=delay_str, max_queue_size=queue_size )
 
         # Setup the links between each access router and its corresponding backbone router and
         # hosts. According to the NIST study:
@@ -43,14 +48,15 @@ class DumbbellTopo( Topo ):
         # the objects in the graph after this method returns. We need to do our interface updates
         # after the Mininet constructor runs inside main().
         #
-        self.addLink( s1, ar1, bw=960 )
-        self.addLink( s2, ar1, bw=960 )
-        self.addLink( ar1, bb1, bw=984 )
-        self.addLink( r1, ar2, bw=960 )
-        self.addLink( r2, ar2, bw=960 )
-        self.addLink( ar2, bb2, bw=984 )
+        host_bw = 960
+        self.addLink( s1, ar1, bw=host_bw )
+        self.addLink( s2, ar1, bw=host_bw )
+        self.addLink( ar1, bb1, bw=bb_bw )
+        self.addLink( r1, ar2, bw=host_bw )
+        self.addLink( r2, ar2, bw=host_bw )
+        self.addLink( ar2, bb2, bw=bb_bw )
 
-def main( delay_ms=21 ):
+def main( delay_ms, cc_alg ):
     topo = DumbbellTopo( delay_ms=delay_ms )
     net = Mininet( topo=topo, link=TCLink, autoStaticArp=True )
     net.start()
@@ -83,12 +89,46 @@ def main( delay_ms=21 ):
     info( "Dumping net connections\n" )
     dumpNetConnections( net )
 
-    # XXX: Add iperf tests here.
+    # Get rid of initial delay in network.
     net.pingAll()
-    net.iperf( [net["s1"], net["s2"]], seconds=10 )
+
+    # Set up tcp_probe on the senders.
+    #info( '%s\n' % net["s1"].cmd( 'modprobe tcp_probe port=5001' ) )
+    #info( '%s\n' % net["s2"].cmd( 'modprobe tcp_probe port=5001' ) )
+
+    # Run one iperf stream between r1 and s1 and another between r2 and s2.
+    duration_sec = 10
+    delay_sec = 2
+    net["r1"].sendCmd( 'iperf -s -p 5001' )
+    net["r2"].sendCmd( 'iperf -s -p 5001' )
+
+    #net["s1"].cmd( 'cat /proc/net/tcpprobe > ~/s1-probe.out &' )
+    net["s1"].sendCmd( 'iperf -c %s -p 5001 -i 1 -t %s -Z %s -w 16m' %
+        (net["r1"].IP(), duration_sec, cc_alg) )
+
+    # Delay the second sender by a certain amount and then start it.
+    time.sleep( delay_sec )
+    #net["s2"].cmd( 'cat /proc/net/tcpprobe > ~/s2-probe.out &' )
+    net["s2"].sendCmd( 'iperf -c %s -p 5001 -i 1 -t %s -Z %s -w 16m' %
+        (net["r2"].IP(), duration_sec - delay_sec, cc_alg) )
+
+    # Wait for all iperfs to close. On server side, we need to send sentinel to output for
+    # waitOutput to return.
+    net["s1"].waitOutput( verbose=True )
+    net["s2"].waitOutput( verbose=True )
+    #net["s1"].cmd( 'kill %cat' )
+    #net["s2"].cmd( 'kill %cat' )
+
+    net["r1"].sendInt()
+    net["r1"].waitOutput( verbose=True )
+
+    net["r2"].sendInt()
+    net["r2"].waitOutput( verbose=True )
 
     net.stop()
 
 if __name__ == "__main__":
+    delay_ms = 21
+    cc_alg = "reno"
     setLogLevel( 'info' )
-    main()
+    main( delay_ms, cc_alg )

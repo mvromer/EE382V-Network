@@ -1,4 +1,4 @@
-from itertools import izip
+from itertools import izip, product
 import os
 import subprocess
 import sys
@@ -59,7 +59,7 @@ class DumbbellTopo( Topo ):
         self.addLink( r2, ar2, bw=host_bw )
         self.addLink( ar2, bb2, bw=bb_bw )
 
-def main( delay_ms, cc_alg, results_path ):
+def main( duration_sec, delay_sec, delay_ms, cc_alg, results_path ):
     topo = DumbbellTopo( delay_ms=delay_ms )
     net = Mininet( topo=topo, link=TCLink, autoStaticArp=True )
     net.start()
@@ -96,6 +96,7 @@ def main( delay_ms, cc_alg, results_path ):
     net.pingAll()
 
     # Restart tcp_probe.
+    print "Restarting tcp_probe"
     subprocess.call( 'modprobe -r tcp_probe', shell=True )
     subprocess.call( 'modprobe tcp_probe', shell=True )
 
@@ -103,8 +104,7 @@ def main( delay_ms, cc_alg, results_path ):
     subprocess.call( '%s &' % read_tcp_probe_command, shell=True )
 
     # Run one iperf stream between r1 and s1 and another between r2 and s2.
-    duration_sec = 10
-    delay_sec = 2
+    print "Running iperf tests"
     net["r1"].sendCmd( 'iperf -s -p 5001' )
     net["r2"].sendCmd( 'iperf -s -p 5002' )
 
@@ -126,18 +126,27 @@ def main( delay_ms, cc_alg, results_path ):
 
     net["r2"].sendInt()
     net["r2"].waitOutput( verbose=True )
+    print "Completed iperf tests"
 
     # Stop tcp_probe.
+    print "Stopping tcp_probe"
     subprocess.call( 'pkill -f "%s"' % read_tcp_probe_command, shell=True )
     subprocess.call( 'modprobe -r tcp_probe', shell=True )
 
     net.stop()
 
 if __name__ == "__main__":
-    # NOTE: sys.path[0] is defined to be the directory containing the script used to
-    # invoke the Python interpreter, i.e., this script's directory.
-    delay_ms = 21
-    cc_alg = "reno"
-    results_path = os.path.join( sys.path[0], "tcp-probe-results.txt" )
-    setLogLevel( 'info' )
-    main( delay_ms, cc_alg, results_path )
+    duration_sec = 1000
+    delay_sec = 250
+    delays = [21, 81, 162]
+    cc_algs = ["reno", "cubic", "dctcp", "cdg"]
+
+    setLogLevel( 'warning' )
+    for delay_ms, cc_alg in product( delays, cc_algs ):
+        print "Running simulation for delay=%sms, CC algorithm=%s" % (delay_ms, cc_alg)
+
+        # NOTE: sys.path[0] is defined to be the directory containing the script used to
+        # invoke the Python interpreter, i.e., this script's directory.
+        results_path = os.path.join( sys.path[0],
+            "tcp-probe-results-%s-%s.txt" % (delay_ms, cc_alg) )
+        main( duration_sec, delay_sec, delay_ms, cc_alg, results_path )

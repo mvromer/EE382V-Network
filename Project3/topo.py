@@ -10,6 +10,9 @@ from mininet.link import TCLink
 from mininet.util import dumpNodeConnections, dumpNetConnections
 from mininet.log import setLogLevel, info
 
+def calculate_queue_size( bw_mbps, delay_ms, factor=1.0 ):
+    return int( bw_mbps * (2 * delay_ms / 1000.0) * factor )
+
 class DumbbellTopo( Topo ):
     def build( self, delay_ms=21 ):
         # Add the hosts.
@@ -32,7 +35,7 @@ class DumbbellTopo( Topo ):
         # 100% of the bandwidth delay product.
         bb_bw = 984
         delay_str = "%dms" % delay_ms
-        queue_size = delay_ms * bb_bw
+        queue_size = calculate_queue_size( bb_bw, delay_ms )
         self.addLink( bb1, bb2, bw=bb_bw, delay=delay_str, max_queue_size=queue_size )
 
         # Setup the links between each access router and its corresponding backbone router and
@@ -83,7 +86,8 @@ def main( duration_sec, delay_sec, delay_ms, cc_alg, results_path ):
             # queue size is 20% of bandwidth delay product.
             #
             ar_iface, _ = ar.connectionsTo( neighbor )[0]
-            queue_size = int(0.2 * 252 * delay_ms)
+            ar_bw = 252
+            queue_size = calculate_queue_size( ar_bw, delay_ms, factor=0.2 )
             ar_iface.config( bw=252, max_queue_size=queue_size )
 
     info( "Dumping host connections\n" )

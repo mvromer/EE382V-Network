@@ -1,4 +1,7 @@
 from itertools import izip
+import os
+import subprocess
+import sys
 import time
 
 from mininet.topo import Topo
@@ -56,7 +59,7 @@ class DumbbellTopo( Topo ):
         self.addLink( r2, ar2, bw=host_bw )
         self.addLink( ar2, bb2, bw=bb_bw )
 
-def main( delay_ms, cc_alg ):
+def main( delay_ms, cc_alg, results_path ):
     topo = DumbbellTopo( delay_ms=delay_ms )
     net = Mininet( topo=topo, link=TCLink, autoStaticArp=True )
     net.start()
@@ -92,32 +95,31 @@ def main( delay_ms, cc_alg ):
     # Get rid of initial delay in network.
     net.pingAll()
 
-    # Set up tcp_probe on the senders.
-    #info( '%s\n' % net["s1"].cmd( 'modprobe tcp_probe port=5001' ) )
-    #info( '%s\n' % net["s2"].cmd( 'modprobe tcp_probe port=5001' ) )
+    # Restart tcp_probe.
+    subprocess.call( 'modprobe -r tcp_probe', shell=True )
+    subprocess.call( 'modprobe tcp_probe', shell=True )
+
+    read_tcp_probe_command = 'dd if=/proc/net/tcpprobe of=%s' % results_path
+    subprocess.call( '%s &' % read_tcp_probe_command, shell=True )
 
     # Run one iperf stream between r1 and s1 and another between r2 and s2.
     duration_sec = 10
     delay_sec = 2
     net["r1"].sendCmd( 'iperf -s -p 5001' )
-    net["r2"].sendCmd( 'iperf -s -p 5001' )
+    net["r2"].sendCmd( 'iperf -s -p 5002' )
 
-    #net["s1"].cmd( 'cat /proc/net/tcpprobe > ~/s1-probe.out &' )
-    net["s1"].sendCmd( 'iperf -c %s -p 5001 -i 1 -t %s -Z %s -w 16m' %
+    net["s1"].sendCmd( 'iperf -c %s -p 5001 -i 1 -t %s -Z %s' %
         (net["r1"].IP(), duration_sec, cc_alg) )
 
     # Delay the second sender by a certain amount and then start it.
     time.sleep( delay_sec )
-    #net["s2"].cmd( 'cat /proc/net/tcpprobe > ~/s2-probe.out &' )
-    net["s2"].sendCmd( 'iperf -c %s -p 5001 -i 1 -t %s -Z %s -w 16m' %
+    net["s2"].sendCmd( 'iperf -c %s -p 5002 -i 1 -t %s -Z %s' %
         (net["r2"].IP(), duration_sec - delay_sec, cc_alg) )
 
     # Wait for all iperfs to close. On server side, we need to send sentinel to output for
     # waitOutput to return.
     net["s1"].waitOutput( verbose=True )
     net["s2"].waitOutput( verbose=True )
-    #net["s1"].cmd( 'kill %cat' )
-    #net["s2"].cmd( 'kill %cat' )
 
     net["r1"].sendInt()
     net["r1"].waitOutput( verbose=True )
@@ -125,10 +127,17 @@ def main( delay_ms, cc_alg ):
     net["r2"].sendInt()
     net["r2"].waitOutput( verbose=True )
 
+    # Stop tcp_probe.
+    subprocess.call( 'pkill -f "%s"' % read_tcp_probe_command, shell=True )
+    subprocess.call( 'modprobe -r tcp_probe', shell=True )
+
     net.stop()
 
 if __name__ == "__main__":
+    # NOTE: sys.path[0] is defined to be the directory containing the script used to
+    # invoke the Python interpreter, i.e., this script's directory.
     delay_ms = 21
     cc_alg = "reno"
+    results_path = os.path.join( sys.path[0], "tcp-probe-results.txt" )
     setLogLevel( 'info' )
-    main( delay_ms, cc_alg )
+    main( delay_ms, cc_alg, results_path )

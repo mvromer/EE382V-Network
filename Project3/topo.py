@@ -57,12 +57,15 @@ class DumbbellTopo( Topo ):
         # after the Mininet constructor runs inside main().
         #
         host_bw = 960
+        ar_bw = 252
+        ar_ppms = 21
+        ar_queue_size = calculate_queue_size( ar_ppms, delay_ms, factor=0.2 )
         self.addLink( s1, ar1, bw=host_bw )
         self.addLink( s2, ar1, bw=host_bw )
-        self.addLink( ar1, bb1, bw=bb_bw )
+        self.addLink( ar1, bb1, bw=ar_bw, max_queue_size=ar_queue_size )
         self.addLink( r1, ar2, bw=host_bw )
         self.addLink( r2, ar2, bw=host_bw )
-        self.addLink( ar2, bb2, bw=bb_bw )
+        self.addLink( ar2, bb2, bw=ar_bw, max_queue_size=ar_queue_size )
 
 def main( duration_sec, delay_sec, delay_ms, cc_alg, results_path ):
     topo = DumbbellTopo( delay_ms=delay_ms )
@@ -91,7 +94,7 @@ def main( duration_sec, delay_sec, delay_ms, cc_alg, results_path ):
             ar_bw = 252
             ar_ppms = 21
             queue_size = calculate_queue_size( ar_ppms, delay_ms, factor=0.2 )
-            ar_iface.config( bw=252, max_queue_size=queue_size )
+            #ar_iface.config( bw=252, max_queue_size=queue_size )
 
     info( "Dumping host connections\n" )
     dumpNodeConnections( net.hosts )
@@ -147,10 +150,10 @@ def main( duration_sec, delay_sec, delay_ms, cc_alg, results_path ):
     net.stop()
 
 if __name__ == "__main__":
-    #duration_sec = 1000
-    #delay_sec = 250
-    duration_sec = 100
-    delay_sec = 25
+    duration_sec = 1000
+    delay_sec = 250
+    #duration_sec = 100
+    #delay_sec = 25
     #delays = [21, 81, 162]
     #cc_algs = ["reno", "cubic", "dctcp", "cdg"]
     delays = [21]

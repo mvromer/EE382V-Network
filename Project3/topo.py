@@ -4,6 +4,7 @@ import subprocess
 import sys
 import time
 
+from mininet.clean import cleanup
 from mininet.topo import Topo
 from mininet.net import Mininet
 from mininet.link import TCLink
@@ -11,7 +12,7 @@ from mininet.util import dumpNodeConnections, dumpNetConnections
 from mininet.log import setLogLevel, info
 
 def calculate_queue_size( bw_ppms, delay_ms, factor=1.0 ):
-    return int( bw_ppms * (2 * delay_ms) * factor )
+    return int( bw_ppms * (delay_ms) * factor )
 
 class DumbbellTopo( Topo ):
     def build( self, delay_ms=21 ):
@@ -104,22 +105,26 @@ def main( duration_sec, delay_sec, delay_ms, cc_alg, results_path ):
     # Restart tcp_probe.
     print "Restarting tcp_probe"
     subprocess.call( 'modprobe -r tcp_probe', shell=True )
-    subprocess.call( 'modprobe tcp_probe', shell=True )
+    subprocess.call( 'modprobe tcp_probe full=1', shell=True )
 
     read_tcp_probe_command = 'dd if=/proc/net/tcpprobe of=%s' % results_path
     subprocess.call( '%s &' % read_tcp_probe_command, shell=True )
 
     # Run one iperf stream between r1 and s1 and another between r2 and s2.
     print "Running iperf tests"
+    print "Sender 1 duration: %d" % duration_sec
+    print "Sender 2 duration: %d" % (duration_sec - delay_sec)
+    print "Sender 2 delay: %d" % delay_sec
+
     net["r1"].sendCmd( 'iperf -s -p 5001' )
     net["r2"].sendCmd( 'iperf -s -p 5002' )
 
-    net["s1"].sendCmd( 'iperf -c %s -p 5001 -i 1 -t %s -Z %s' %
+    net["s1"].sendCmd( 'iperf -c %s -p 5001 -i 1 -w 16m -t %d -Z %s' %
         (net["r1"].IP(), duration_sec, cc_alg) )
 
     # Delay the second sender by a certain amount and then start it.
     time.sleep( delay_sec )
-    net["s2"].sendCmd( 'iperf -c %s -p 5002 -i 1 -t %s -Z %s' %
+    net["s2"].sendCmd( 'iperf -c %s -p 5002 -i 1 -w 16m -t %d -Z %s' %
         (net["r2"].IP(), duration_sec - delay_sec, cc_alg) )
 
     # Wait for all iperfs to close. On server side, we need to send sentinel to output for
@@ -142,12 +147,15 @@ def main( duration_sec, delay_sec, delay_ms, cc_alg, results_path ):
     net.stop()
 
 if __name__ == "__main__":
-    duration_sec = 1000
-    delay_sec = 250
-    delays = [21, 81, 162]
-    cc_algs = ["reno", "cubic", "dctcp", "cdg"]
+    #duration_sec = 1000
+    #delay_sec = 250
+    duration_sec = 100
+    delay_sec = 25
+    #delays = [21, 81, 162]
+    #cc_algs = ["reno", "cubic", "dctcp", "cdg"]
+    delays = [21]
+    cc_algs = ["reno"]
 
-    setLogLevel( 'warning' )
     for delay_ms, cc_alg in product( delays, cc_algs ):
         print "Running simulation for delay=%sms, CC algorithm=%s" % (delay_ms, cc_alg)
 
@@ -155,4 +163,6 @@ if __name__ == "__main__":
         # invoke the Python interpreter, i.e., this script's directory.
         results_path = os.path.join( sys.path[0],
             "tcp-probe-results-%s-%s.txt" % (delay_ms, cc_alg) )
+        setLogLevel( 'info' )
         main( duration_sec, delay_sec, delay_ms, cc_alg, results_path )
+        cleanup()

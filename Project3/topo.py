@@ -119,27 +119,27 @@ def main( duration_sec, delay_sec, delay_ms, cc_alg, results_path ):
     print "Sender 2 duration: %d" % (duration_sec - delay_sec)
     print "Sender 2 delay: %d" % delay_sec
 
-    net["r1"].sendCmd( 'iperf -s -p 5001' )
-    net["r2"].sendCmd( 'iperf -s -p 5002' )
+    net["r1"].sendCmd( 'iperf -s -p 5001 &> r1-output.txt' )
+    net["r2"].sendCmd( 'iperf -s -p 5002 &> r2-output.txt' )
 
-    net["s1"].sendCmd( 'iperf -c %s -p 5001 -i 1 -w 16m -t %d -Z %s' %
+    net["s1"].sendCmd( 'iperf -c %s -p 5001 -i 1 -w 16m -t %d -Z %s &> s1-output.txt' %
         (net["r1"].IP(), duration_sec, cc_alg) )
 
     # Delay the second sender by a certain amount and then start it.
     time.sleep( delay_sec )
-    net["s2"].sendCmd( 'iperf -c %s -p 5002 -i 1 -w 16m -t %d -Z %s' %
+    net["s2"].sendCmd( 'iperf -c %s -p 5002 -i 1 -w 16m -t %d -Z %s &> s2-output.txt' %
         (net["r2"].IP(), duration_sec - delay_sec, cc_alg) )
 
     # Wait for all iperfs to close. On server side, we need to send sentinel to output for
     # waitOutput to return.
-    net["s1"].waitOutput( verbose=True )
-    net["s2"].waitOutput( verbose=True )
-
-    net["r1"].sendInt()
-    net["r1"].waitOutput( verbose=True )
+    net["s2"].waitOutput()
+    net["s1"].waitOutput()
 
     net["r2"].sendInt()
-    net["r2"].waitOutput( verbose=True )
+    net["r2"].waitOutput()
+
+    net["r1"].sendInt()
+    net["r1"].waitOutput()
     print "Completed iperf tests"
 
     # Stop tcp_probe.

@@ -11,8 +11,9 @@ from mininet.link import TCLink
 from mininet.util import dumpNodeConnections, dumpNetConnections
 from mininet.log import setLogLevel, info
 
+# NOTE: This is the queue size calculation we were told to use in class and on Piazza.
 def calculate_queue_size( bw_ppms, delay_ms, factor=1.0 ):
-    return int( bw_ppms * (delay_ms) * factor )
+    return int( bw_ppms * delay_ms * factor )
 
 class DumbbellTopo( Topo ):
     def build( self, delay_ms=21 ):
@@ -119,16 +120,21 @@ def main( duration_sec, delay_sec, delay_ms, cc_alg, results_path ):
     print "Sender 2 duration: %d" % (duration_sec - delay_sec)
     print "Sender 2 delay: %d" % delay_sec
 
-    net["r1"].sendCmd( 'iperf -s -p 5001 &> r1-output.txt' )
-    net["r2"].sendCmd( 'iperf -s -p 5002 &> r2-output.txt' )
+    r1_output = "r1-output-%d-%s.txt" % (delay_ms, cc_alg)
+    r2_output = "r2-output-%d-%s.txt" % (delay_ms, cc_alg)
+    s1_output = "s1-output-%d-%s.txt" % (delay_ms, cc_alg)
+    s2_output = "s2-output-%d-%s.txt" % (delay_ms, cc_alg)
 
-    net["s1"].sendCmd( 'iperf -c %s -p 5001 -i 1 -w 16m -t %d -Z %s &> s1-output.txt' %
-        (net["r1"].IP(), duration_sec, cc_alg) )
+    net["r1"].sendCmd( 'iperf -s -p 5001 &> %s' % r1_output )
+    net["r2"].sendCmd( 'iperf -s -p 5002 &> %s' % r2_output )
+
+    net["s1"].sendCmd( 'iperf -c %s -p 5001 -i 1 -w 16m -t %d -Z %s &> %s' %
+                       (net["r1"].IP(), duration_sec, cc_alg, s1_output) )
 
     # Delay the second sender by a certain amount and then start it.
     time.sleep( delay_sec )
-    net["s2"].sendCmd( 'iperf -c %s -p 5002 -i 1 -w 16m -t %d -Z %s &> s2-output.txt' %
-        (net["r2"].IP(), duration_sec - delay_sec, cc_alg) )
+    net["s2"].sendCmd( 'iperf -c %s -p 5002 -i 1 -w 16m -t %d -Z %s &> %s' %
+                       (net["r2"].IP(), duration_sec - delay_sec, cc_alg, s2_output) )
 
     # Wait for all iperfs to close. On server side, we need to send sentinel to output for
     # waitOutput to return.
@@ -152,12 +158,10 @@ def main( duration_sec, delay_sec, delay_ms, cc_alg, results_path ):
 if __name__ == "__main__":
     duration_sec = 1000
     delay_sec = 250
-    #duration_sec = 100
-    #delay_sec = 25
-    #delays = [21, 81, 162]
-    #cc_algs = ["reno", "cubic", "dctcp", "cdg"]
-    delays = [21]
-    cc_algs = ["reno"]
+    delays = [21, 81, 162]
+    cc_algs = ["reno", "cubic", "dctcp", "cdg"]
+    #delays = [21]
+    #cc_algs = ["reno"]
 
     for delay_ms, cc_alg in product( delays, cc_algs ):
         print "Running simulation for delay=%sms, CC algorithm=%s" % (delay_ms, cc_alg)

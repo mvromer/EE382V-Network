@@ -11,12 +11,21 @@ from mininet.link import TCLink
 from mininet.util import dumpNodeConnections, dumpNetConnections
 from mininet.log import setLogLevel, info
 
-# NOTE: This is the queue size calculation we were told to use in class and on Piazza.
-def calculate_queue_size( bw_ppms, delay_ms, factor=1.0 ):
-    return int( bw_ppms * delay_ms * factor )
-
 class DumbbellTopo( Topo ):
+    BACKBONE_BANDWIDTH_MBPS = 984
+    ACCESS_ROUTER_BANDWIDTH_MBPS = 252
+    HOST_BANDWIDTH_MBPS = 960
+
+    BACKBONE_BANDWIDTH_PPMS = 82
+    ACCESS_ROUTER_BANDWIDTH_PPMS = 21
+    HOST_BANDWIDTH_PPMS = 80
+
     def build( self, delay_ms=21 ):
+        # Some constants defining our network parameters.
+        self.bandwidth_delay_product = 2 * DumbbellTopo.ACCESS_ROUTER_BANDWIDTH_PPMS * delay_ms
+        self.backbone_queue_size = self.bandwidth_delay_product
+        self.access_router_queue_size = int(0.2 * self.bandwidth_delay_product)
+
         # Add the hosts.
         s1 = self.addHost( "s1" )
         s2 = self.addHost( "s2" )
@@ -32,41 +41,19 @@ class DumbbellTopo( Topo ):
         ar2 = self.addSwitch( "ar2" )
 
         # Set up link between backbone routers with given one-way propagation delay.
-        # According to the NIST study, each backbone router can transmit up to 984 Mbps.
-        # According to the professor's post on Piazza, we'll also want to set the max queue size to
-        # 100% of the bandwidth delay product.
-        bb_bw = 984
-        bb_ppms = 82
         delay_str = "%dms" % delay_ms
-        queue_size = calculate_queue_size( bb_ppms, delay_ms )
-        self.addLink( bb1, bb2, bw=bb_bw, delay=delay_str, max_queue_size=queue_size )
+        self.addLink( bb1, bb2,
+                      bw=DumbbellTopo.BACKBONE_BANDWIDTH_MBPS,
+                      delay=delay_str,
+                      max_queue_size=self.backbone_queue_size )
 
-        # Setup the links between each access router and its corresponding backbone router and
-        # hosts. According to the NIST study:
-        #
-        #  * Each backbone router can transmit up to 984 Mbps.
-        #  * Each host can transmit up to 960 Mbps.
-        #  * Each access router can only transmit up to 252 Mbps.
-        #
-        # To handle this asymmetry, we first create all the links. This will create symmetric,
-        # bidirectional links. Afterward, we modify the interface of the access routers to limit
-        # their bandwidths.
-        #
-        # NOTE: We cannot modify the interfaces here because they're technically not created yet.
-        # We're only constructing a graph representation of our network topology. Mininet creates
-        # the objects in the graph after this method returns. We need to do our interface updates
-        # after the Mininet constructor runs inside main().
-        #
-        host_bw = 960
-        ar_bw = 252
-        ar_ppms = 21
-        ar_queue_size = calculate_queue_size( ar_ppms, delay_ms, factor=0.2 )
-        self.addLink( s1, ar1, bw=host_bw )
-        self.addLink( s2, ar1, bw=host_bw )
-        self.addLink( ar1, bb1, bw=ar_bw, max_queue_size=ar_queue_size )
-        self.addLink( r1, ar2, bw=host_bw )
-        self.addLink( r2, ar2, bw=host_bw )
-        self.addLink( ar2, bb2, bw=ar_bw, max_queue_size=ar_queue_size )
+        # Setup the links between each access router and its corresponding backbone router and hosts.
+        self.addLink( s1, ar1, bw=DumbbellTopo.HOST_BANDWIDTH_MBPS )
+        self.addLink( s2, ar1, bw=DumbbellTopo.HOST_BANDWIDTH_MBPS )
+        self.addLink( ar1, bb1, bw=DumbbellTopo.BACKBONE_BANDWIDTH_MBPS, max_queue_size=self.backbone_queue_size )
+        self.addLink( r1, ar2, bw=DumbbellTopo.HOST_BANDWIDTH_MBPS )
+        self.addLink( r2, ar2, bw=DumbbellTopo.HOST_BANDWIDTH_MBPS )
+        self.addLink( ar2, bb2, bw=DumbbellTopo.BACKBONE_BANDWIDTH_MBPS, max_queue_size=self.backbone_queue_size )
 
 def main( duration_sec, delay_sec, delay_ms, cc_alg, results_path ):
     topo = DumbbellTopo( delay_ms=delay_ms )
@@ -92,10 +79,8 @@ def main( duration_sec, delay_sec, delay_ms, cc_alg, results_path ):
             # queue size is 20% of bandwidth delay product.
             #
             ar_iface, _ = ar.connectionsTo( neighbor )[0]
-            ar_bw = 252
-            ar_ppms = 21
-            queue_size = calculate_queue_size( ar_ppms, delay_ms, factor=0.2 )
-            #ar_iface.config( bw=252, max_queue_size=queue_size )
+            ar_iface.config( bw=DumbbellTopo.ACCESS_ROUTER_BANDWIDTH_MBPS,
+                             max_queue_size=topo.access_router_queue_size )
 
     info( "Dumping host connections\n" )
     dumpNodeConnections( net.hosts )
@@ -158,10 +143,10 @@ def main( duration_sec, delay_sec, delay_ms, cc_alg, results_path ):
 if __name__ == "__main__":
     duration_sec = 1000
     delay_sec = 250
-    delays = [21, 81, 162]
-    cc_algs = ["reno", "cubic", "dctcp", "cdg"]
-    #delays = [21]
-    #cc_algs = ["reno"]
+    #delays = [21, 81, 162]
+    #cc_algs = ["reno", "cubic", "dctcp", "cdg"]
+    delays = [21]
+    cc_algs = ["reno"]
 
     for delay_ms, cc_alg in product( delays, cc_algs ):
         print "Running simulation for delay=%sms, CC algorithm=%s" % (delay_ms, cc_alg)

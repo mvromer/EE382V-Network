@@ -145,7 +145,8 @@ def main( duration_sec, delay_sec, delay_ms, cc_alg, results_path, interactive=F
                 s2_output = "s2-output-%d-%s.txt" % (delay_ms, cc_alg)
 
                 # 1500 == MTU.
-                iperf_window = topo.bandwidth_delay_product * 1500
+                # iperf_window = topo.bandwidth_delay_product * 1500
+                iperf_window = DumbbellTopo.HOST_BANDWIDTH_PPMS * delay_ms * 1500
                 print "Iperf window (bytes): %d" % iperf_window
 
                 net["r1"].sendCmd( 'iperf -s -p 5001 -w %d &> %s' % (iperf_window, r1_output) )

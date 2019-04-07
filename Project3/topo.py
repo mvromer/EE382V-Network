@@ -33,7 +33,7 @@ class DumbbellTopo( Topo ):
 
     def build( self, delay_ms=21 ):
         # Some constants defining our network parameters.
-        self.bandwidth_delay_product = 2 * DumbbellTopo.ACCESS_ROUTER_BANDWIDTH_PPMS * delay_ms
+        self.bandwidth_delay_product = DumbbellTopo.ACCESS_ROUTER_BANDWIDTH_PPMS * delay_ms
         self.backbone_queue_size = self.bandwidth_delay_product
         self.access_router_queue_size = int(0.2 * self.bandwidth_delay_product)
 
@@ -142,16 +142,20 @@ def main( duration_sec, delay_sec, delay_ms, cc_alg, results_path, interactive=F
                 s1_output = "s1-output-%d-%s.txt" % (delay_ms, cc_alg)
                 s2_output = "s2-output-%d-%s.txt" % (delay_ms, cc_alg)
 
-                net["r1"].sendCmd( 'iperf -s -p 5001 &> %s' % r1_output )
-                net["r2"].sendCmd( 'iperf -s -p 5002 &> %s' % r2_output )
+                # 1500 == MTU.
+                iperf_window = topo.bandwidth_delay_product * 1500
+                print "Iperf window (bytes): %d" % iperf_window
+
+                net["r1"].sendCmd( 'iperf -s -p 5001 -w %d &> %s' % (iperf_window, r1_output) )
+                net["r2"].sendCmd( 'iperf -s -p 5002 -w %d &> %s' % (iperf_window, r2_output) )
     
-                net["s1"].sendCmd( 'iperf -c %s -p 5001 -i 1 -w 16m -t %d -Z %s &> %s' %
-                                   (net["r1"].IP(), duration_sec, cc_alg, s1_output) )
+                net["s1"].sendCmd( 'iperf -c %s -p 5001 -i 1 -w %d -t %d -Z %s &> %s' %
+                                   (net["r1"].IP(), iperf_window, duration_sec, cc_alg, s1_output) )
 
                 # Delay the second sender by a certain amount and then start it.
                 time.sleep( delay_sec )
-                net["s2"].sendCmd( 'iperf -c %s -p 5002 -i 1 -w 16m -t %d -Z %s &> %s' %
-                                   (net["r2"].IP(), duration_sec - delay_sec, cc_alg, s2_output) )
+                net["s2"].sendCmd( 'iperf -c %s -p 5002 -i 1 -w %d -t %d -Z %s &> %s' %
+                                   (net["r2"].IP(), iperf_window, duration_sec - delay_sec, cc_alg, s2_output) )
 
                 # Wait for all iperfs to close. On server side, we need to send sentinel to output for
                 # waitOutput to return.
@@ -178,7 +182,7 @@ if __name__ == "__main__":
     #delays = [21, 81, 162]
     #cc_algs = ["reno", "cubic", "dctcp", "cdg"]
     delays = [21]
-    cc_algs = ["reno"]
+    cc_algs = ["reno", "cubic"]
 
     for delay_ms, cc_alg in product( delays, cc_algs ):
         print "Running simulation for delay=%sms, CC algorithm=%s" % (delay_ms, cc_alg)
@@ -188,5 +192,5 @@ if __name__ == "__main__":
         results_path = os.path.join( sys.path[0],
             "tcp-probe-results-%s-%s.txt" % (delay_ms, cc_alg) )
         setLogLevel( 'info' )
-        main( duration_sec, delay_sec, delay_ms, cc_alg, results_path, interactive=True )
+        main( duration_sec, delay_sec, delay_ms, cc_alg, results_path, interactive=False )
         cleanup()

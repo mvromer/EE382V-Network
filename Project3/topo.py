@@ -56,10 +56,12 @@ class DumbbellTopo( Topo ):
 
         # Setup the links between each access router and its corresponding backbone router.
         self.addLink( ar1, bb1, intfName2="bb1-eth1",
-                      bw=DumbbellTopo.BACKBONE_BANDWIDTH_MBPS, max_queue_size=self.backbone_queue_size )
+                      bw=DumbbellTopo.ACCESS_ROUTER_BANDWIDTH_MBPS,
+                      max_queue_size=self.access_router_queue_size )
 
         self.addLink( ar2, bb2, intfName2="bb2-eth1",
-                      bw=DumbbellTopo.BACKBONE_BANDWIDTH_MBPS, max_queue_size=self.backbone_queue_size )
+                      bw=DumbbellTopo.ACCESS_ROUTER_BANDWIDTH_MBPS,
+                      max_queue_size=self.access_router_queue_size )
 
         # Add the hosts.
         s1 = self.addHost( "s1", ip="10.0.1.2/24", defaultRoute="via 10.0.1.1" )
@@ -82,14 +84,14 @@ def main( duration_sec, delay_sec, delay_ms, cc_alg, results_path, interactive=F
         # Update our access router interfaces to limit their transmit speeds to only 252 Mbps. Note that
         # this has to come after we start the network because during testing it seemed that net.start()
         # reloaded the original bandwidth that was set when the associated link was first created.
-        ars = (net["ar1"], net["ar2"])
-        ar_neighbors = (
-            (net["s1"], net["s2"], net["bb1"]),
-            (net["r1"], net["r2"], net["bb2"])
-        )
+#        ars = (net["ar1"], net["ar2"])
+#        ar_neighbors = (
+#            (net["s1"], net["s2"], net["bb1"]),
+#            (net["r1"], net["r2"], net["bb2"])
+#        )
 
-        for ar, neighbors in izip( ars, ar_neighbors ):
-            for neighbor in neighbors:
+#        for ar, neighbors in izip( ars, ar_neighbors ):
+#            for neighbor in neighbors:
                 # This basically returns a list of pairs where for each pair the first item is the
                 # interface on self and the second item is the interface on the node passed to
                 # connectionsTo.
@@ -97,9 +99,9 @@ def main( duration_sec, delay_sec, delay_ms, cc_alg, results_path, interactive=F
                 # According to the NIST study, bandwidth on the access router interfaces is 252 Mbps and
                 # queue size is 20% of bandwidth delay product.
                 #
-                ar_iface, _ = ar.connectionsTo( neighbor )[0]
-                ar_iface.config( bw=DumbbellTopo.ACCESS_ROUTER_BANDWIDTH_MBPS,
-                                 max_queue_size=topo.access_router_queue_size )
+#                ar_iface, _ = ar.connectionsTo( neighbor )[0]
+#                ar_iface.config( bw=DumbbellTopo.ACCESS_ROUTER_BANDWIDTH_MBPS,
+#                                 max_queue_size=topo.access_router_queue_size )
 
         # TCLink ignores any sort of IP address we might specify for non-default interfaces when we are
         # creating links via Topo.addLink. This reassigns the addresses we want for those interfaces on

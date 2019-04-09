@@ -31,15 +31,19 @@ class DumbbellTopo( Topo ):
     ACCESS_ROUTER_BANDWIDTH_PPMS = 21
     HOST_BANDWIDTH_PPMS = 80
 
-    def build( self, delay_ms=21 ):
+    def build( self, delay_ms=21, use_linux_router=True, use_asym=False ):
         # Some constants defining our network parameters.
         self.bandwidth_delay_product = DumbbellTopo.ACCESS_ROUTER_BANDWIDTH_PPMS * delay_ms
         self.backbone_queue_size = self.bandwidth_delay_product
         self.access_router_queue_size = int(0.2 * self.bandwidth_delay_product)
 
         # Add the backbone switches (L3 routers).
-        bb1 = self.addHost( "bb1", cls=LinuxRouter, ip="10.0.0.1/24", defaultRotue="via 10.0.0.2" )
-        bb2 = self.addHost( "bb2", cls=LinuxRouter, ip="10.0.0.2/24", defaultRoute="via 10.0.0.1" )
+        if use_linux_router:
+            bb1 = self.addHost( "bb1", cls=LinuxRouter, ip="10.0.0.1/24", defaultRotue="via 10.0.0.2" )
+            bb2 = self.addHost( "bb2", cls=LinuxRouter, ip="10.0.0.2/24", defaultRoute="via 10.0.0.1" )
+        else:
+            bb1 = self.addSwitch( "bb1" )
+            bb2 = self.addSwitch( "bb2" )
 
         # Set up link between backbone routers with given one-way propagation delay.
         delay_str = "%dms" % delay_ms
@@ -55,19 +59,34 @@ class DumbbellTopo( Topo ):
         ar2 = self.addSwitch( "ar2" )
 
         # Setup the links between each access router and its corresponding backbone router.
-        self.addLink( ar1, bb1, intfName2="bb1-eth1",
-                      bw=DumbbellTopo.ACCESS_ROUTER_BANDWIDTH_MBPS,
-                      max_queue_size=self.access_router_queue_size )
+        if use_asym:
+            self.addLink( ar1, bb1, intfName2="bb1-eth1",
+                          bw=DumbbellTopo.BACKBONE_BANDWIDTH_MBPS,
+                          max_queue_size=self.backbone_queue_size )
 
-        self.addLink( ar2, bb2, intfName2="bb2-eth1",
-                      bw=DumbbellTopo.ACCESS_ROUTER_BANDWIDTH_MBPS,
-                      max_queue_size=self.access_router_queue_size )
+            self.addLink( ar2, bb2, intfName2="bb2-eth1",
+                          bw=DumbbellTopo.BACKBONE_BANDWIDTH_MBPS,
+                          max_queue_size=self.backbone_queue_size )
+        else:
+            self.addLink( ar1, bb1, intfName2="bb1-eth1",
+                          bw=DumbbellTopo.ACCESS_ROUTER_BANDWIDTH_MBPS,
+                          max_queue_size=self.access_router_queue_size )
+
+            self.addLink( ar2, bb2, intfName2="bb2-eth1",
+                          bw=DumbbellTopo.ACCESS_ROUTER_BANDWIDTH_MBPS,
+                          max_queue_size=self.access_router_queue_size )
 
         # Add the hosts.
-        s1 = self.addHost( "s1", ip="10.0.1.2/24", defaultRoute="via 10.0.1.1" )
-        s2 = self.addHost( "s2", ip="10.0.1.3/24", defaultRoute="via 10.0.1.1" )
-        r1 = self.addHost( "r1", ip="10.0.2.2/24", defaultRoute="via 10.0.2.1" )
-        r2 = self.addHost( "r2", ip="10.0.2.3/24", defaultRoute="via 10.0.2.1" )
+        if use_linux_router:
+            s1 = self.addHost( "s1", ip="10.0.1.2/24", defaultRoute="via 10.0.1.1" )
+            s2 = self.addHost( "s2", ip="10.0.1.3/24", defaultRoute="via 10.0.1.1" )
+            r1 = self.addHost( "r1", ip="10.0.2.2/24", defaultRoute="via 10.0.2.1" )
+            r2 = self.addHost( "r2", ip="10.0.2.3/24", defaultRoute="via 10.0.2.1" )
+        else:
+            s1 = self.addHost( "s1" )
+            s2 = self.addHost( "s2" )
+            r1 = self.addHost( "r1" )
+            r2 = self.addHost( "r2" )
 
         # Setup the links between each access router and its hosts.
         self.addLink( s1, ar1, bw=DumbbellTopo.HOST_BANDWIDTH_MBPS )
@@ -75,42 +94,44 @@ class DumbbellTopo( Topo ):
         self.addLink( r1, ar2, bw=DumbbellTopo.HOST_BANDWIDTH_MBPS )
         self.addLink( r2, ar2, bw=DumbbellTopo.HOST_BANDWIDTH_MBPS )
 
-def main( duration_sec, delay_sec, delay_ms, cc_alg, results_path, interactive=False ):
-    topo = DumbbellTopo( delay_ms=delay_ms )
+def main( duration_sec, delay_sec, delay_ms, cc_alg, results_path, interactive=False, use_linux_router=True, use_asym=False ):
+    topo = DumbbellTopo( delay_ms=delay_ms, use_linux_router=use_linux_router, use_asym=use_asym )
     net = Mininet( topo=topo, link=TCLink, autoStaticArp=True )
     net.start()
 
     try:
-        # Update our access router interfaces to limit their transmit speeds to only 252 Mbps. Note that
-        # this has to come after we start the network because during testing it seemed that net.start()
-        # reloaded the original bandwidth that was set when the associated link was first created.
-#        ars = (net["ar1"], net["ar2"])
-#        ar_neighbors = (
-#            (net["s1"], net["s2"], net["bb1"]),
-#            (net["r1"], net["r2"], net["bb2"])
-#        )
+        if use_asym:
+            # Update our access router interfaces to limit their transmit speeds to only 252 Mbps. Note that
+            # this has to come after we start the network because during testing it seemed that net.start()
+            # reloaded the original bandwidth that was set when the associated link was first created.
+            ars = (net["ar1"], net["ar2"])
+            ar_neighbors = (
+                (net["s1"], net["s2"], net["bb1"]),
+                (net["r1"], net["r2"], net["bb2"])
+            )
 
-#        for ar, neighbors in izip( ars, ar_neighbors ):
-#            for neighbor in neighbors:
-                # This basically returns a list of pairs where for each pair the first item is the
-                # interface on self and the second item is the interface on the node passed to
-                # connectionsTo.
-                #
-                # According to the NIST study, bandwidth on the access router interfaces is 252 Mbps and
-                # queue size is 20% of bandwidth delay product.
-                #
-#                ar_iface, _ = ar.connectionsTo( neighbor )[0]
-#                ar_iface.config( bw=DumbbellTopo.ACCESS_ROUTER_BANDWIDTH_MBPS,
-#                                 max_queue_size=topo.access_router_queue_size )
+            for ar, neighbors in izip( ars, ar_neighbors ):
+                for neighbor in neighbors:
+                    # This basically returns a list of pairs where for each pair the first item is the
+                    # interface on self and the second item is the interface on the node passed to
+                    # connectionsTo.
+                    #
+                    # According to the NIST study, bandwidth on the access router interfaces is 252 Mbps and
+                    # queue size is 20% of bandwidth delay product.
+                    #
+                    ar_iface, _ = ar.connectionsTo( neighbor )[0]
+                    ar_iface.config( bw=DumbbellTopo.ACCESS_ROUTER_BANDWIDTH_MBPS,
+                                     max_queue_size=topo.access_router_queue_size )
 
         # TCLink ignores any sort of IP address we might specify for non-default interfaces when we are
         # creating links via Topo.addLink. This reassigns the addresses we want for those interfaces on
         # our backbone routers. We also add routing rules to each backbone router so that each router
         # can forward traffic to the subnet they are not directly connected to.
-        net["bb1"].intf( "bb1-eth1" ).setIP( "10.0.1.1/24" )
-        net["bb2"].intf( "bb2-eth1" ).setIP( "10.0.2.1/24" )
-        net["bb1"].cmd( "route add -net 10.0.2.0 netmask 255.255.255.0 gw 10.0.0.2 dev bb1-eth0" )
-        net["bb2"].cmd( "route add -net 10.0.1.0 netmask 255.255.255.0 gw 10.0.0.1 dev bb2-eth0" )
+        if use_linux_router:
+            net["bb1"].intf( "bb1-eth1" ).setIP( "10.0.1.1/24" )
+            net["bb2"].intf( "bb2-eth1" ).setIP( "10.0.2.1/24" )
+            net["bb1"].cmd( "route add -net 10.0.2.0 netmask 255.255.255.0 gw 10.0.0.2 dev bb1-eth0" )
+            net["bb2"].cmd( "route add -net 10.0.1.0 netmask 255.255.255.0 gw 10.0.0.1 dev bb2-eth0" )
 
         info( "Dumping host connections\n" )
         dumpNodeConnections( net.hosts )
@@ -145,7 +166,7 @@ def main( duration_sec, delay_sec, delay_ms, cc_alg, results_path, interactive=F
                 s2_output = "s2-output-%d-%s.txt" % (delay_ms, cc_alg)
 
                 # 1500 == MTU.
-                # iperf_window = topo.bandwidth_delay_product * 1500
+                #iperf_window = DumbbellTopo.ACCESS_ROUTER_BANDWIDTH_PPMS * delay_ms * 1500
                 iperf_window = DumbbellTopo.HOST_BANDWIDTH_PPMS * delay_ms * 1500
                 print "Iperf window (bytes): %d" % iperf_window
 
@@ -182,10 +203,9 @@ def main( duration_sec, delay_sec, delay_ms, cc_alg, results_path, interactive=F
 if __name__ == "__main__":
     duration_sec = 1000
     delay_sec = 250
-    #delays = [21, 81, 162]
-    #cc_algs = ["reno", "cubic", "dctcp", "cdg"]
-    delays = [21]
-    cc_algs = ["reno", "cubic"]
+    delays = [21, 81, 162]
+    #cc_algs = ["reno", "cubic"]
+    cc_algs = ["dctcp", "cdg"]
 
     for delay_ms, cc_alg in product( delays, cc_algs ):
         print "Running simulation for delay=%sms, CC algorithm=%s" % (delay_ms, cc_alg)
@@ -195,5 +215,5 @@ if __name__ == "__main__":
         results_path = os.path.join( sys.path[0],
             "tcp-probe-results-%s-%s.txt" % (delay_ms, cc_alg) )
         setLogLevel( 'info' )
-        main( duration_sec, delay_sec, delay_ms, cc_alg, results_path, interactive=False )
+        main( duration_sec, delay_sec, delay_ms, cc_alg, results_path, interactive=False, use_linux_router=True, use_asym=True )
         cleanup()
